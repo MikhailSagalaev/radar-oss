@@ -1,0 +1,49 @@
+import type { Logger } from '../core/types.ts';
+import { pollAll, type PollDeps } from './poll.ts';
+
+export class PollRunner {
+  private timer: NodeJS.Timeout | undefined;
+  private running = false;
+
+  constructor(
+    private readonly deps: PollDeps,
+    private readonly intervalSec: number,
+    private readonly logger: Logger,
+  ) {}
+
+  start(): void {
+    const tick = (): void => {
+      if (this.running) {
+        this.logger.debug('poll tick skipped: previous run is still active');
+        return;
+      }
+      this.running = true;
+      void pollAll(this.deps)
+        .then((summaries) => {
+          if (summaries.length) {
+            this.logger.info('scheduled poll finished', {
+              sources: summaries.length,
+              delivered: summaries.reduce((sum, item) => sum + item.delivered, 0),
+              errors: summaries.filter((item) => item.error).length,
+            });
+          }
+        })
+        .catch((error) => {
+          this.logger.error('scheduled poll failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          this.running = false;
+        });
+    };
+
+    tick();
+    this.timer = setInterval(tick, Math.max(10, this.intervalSec) * 1000);
+  }
+
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+  }
+}

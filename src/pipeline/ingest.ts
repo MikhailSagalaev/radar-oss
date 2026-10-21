@@ -1,0 +1,194 @@
+import { randomUUID } from 'node:crypto';
+import { prepareRawLead } from '../core/prepare.ts';
+import { applyRules } from '../core/rules.ts';
+import type {
+  Classifier,
+  Env,
+  Lead,
+  Logger,
+  RawLead,
+  SourceRecord,
+} from '../core/types.ts';
+import type { Store } from '../core/store.ts';
+import type { SinkRegistry } from '../sinks/index.ts';
+
+export interface IngestDeps {
+  store: Store;
+  sinks: SinkRegistry;
+  classifier?: Classifier;
+  logger: Logger;
+  env: Env;
+  now?: () => Date;
+  fetchImpl?: typeof fetch;
+}
+
+export type IngestStatus = 'inserted' | 'duplicate' | 'rejected' | 'delivered' | 'failed';
+
+export interface IngestOutcome {
+  status: IngestStatus;
+  lead?: Lead;
+  reasons?: string[];
+  error?: string;
+}
+
+function duplicateLead(existing: Lead, fingerprint: string): IngestOutcome {
+  return {
+    status: 'duplicate',
+    lead: existing,
+    reasons: [`duplicate:${existing.fingerprint === fingerprint ? 'fingerprint' : 'title'}`],
+  };
+}
+
+export async function ingestRawLead(
+  raw: RawLead,
+  source: SourceRecord,
+  deps: IngestDeps,
+): Promise<IngestOutcome> {
+  const now = deps.now?.() ?? new Date();
+  const prepared = prepareRawLead(raw, source, now);
+
+  const byFingerprint = deps.store.findLeadByFingerprint(prepared.fingerprint);
+  if (byFingerprint) return duplicateLead(byFingerprint, prepared.fingerprint);
+
+  const since = new Date(now.getTime() - 24 * 3600 * 1000).toISOString();
+  const byTitle = deps.store.findRecentByTitleKey(prepared.titleKey, prepared.city, since);
+  if (byTitle) return duplicateLead(byTitle, prepared.fingerprint);
+
+  const rules = applyRules(prepared, source, now);
+  let status: IngestOutcome['status'] = rules.accepted ? 'inserted' : 'rejected';
+  const reasons = [...rules.reasons];
+  let city = prepared.city;
+  let score = rules.score;
+
+  if (rules.accepted && deps.classifier) {
+    try {
+      const classification = await deps.classifier.classify({
+        title: prepared.title,
+        text: prepared.text,
+        city: prepared.city,
+        budget: prepared.budget,
+      });
+      if (classification) {
+        if (!classification.isLead && classification.confidence >= 0.6) {
+          status = 'rejected';
+          reasons.push(`llm:not_a_lead:${classification.confidence.toFixed(2)}`);
+        } else if (classification.isLead) {
+          reasons.push(`llm:lead:${classification.confidence.toFixed(2)}`);
+          if (!city && classification.city) city = classification.city;
+          score = Math.max(score, Math.round(classification.confidence * 100));
+        }
+      }
+    } catch (error) {
+      deps.logger.warn('classifier failed; continuing with rules only', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const lead: Lead = {
+    id: randomUUID(),
+    sourceId: source.id,
+    externalId: prepared.externalId,
+    url: prepared.url,
+    canonicalUrl: prepared.canonicalUrl,
+    title: prepared.title,
+    text: prepared.text,
+    author: prepared.author,
+    city,
+    budget: prepared.budget,
+    publishedAt: prepared.publishedAt,
+    fingerprint: prepared.fingerprint,
+    titleKey: prepared.titleKey,
+    status: status === 'rejected' ? 'rejected' : 'new',
+    score,
+    reasons,
+    createdAt: now.toISOString(),
+  };
+
+  const inserted = deps.store.insertLead(lead);
+  if (!inserted) return { status: 'duplicate', reasons: ['duplicate:race'] };
+
+  if (status === 'rejected') {
+    return { status: 'rejected', lead, reasons };
+  }
+
+  const deliveries = await deps.sinks.deliver(lead, {
+    env: deps.env,
+    logger: deps.logger,
+    fetchImpl: deps.fetchImpl ?? fetch,
+  });
+
+  for (const delivery of deliveries) {
+    deps.store.recordDelivery(
+      lead.id,
+      delivery.sink,
+      delivery.ok ? 'sent' : 'failed',
+      delivery.error,
+    );
+  }
+
+  if (deliveries.length === 0) {
+    return { status: 'inserted', lead, reasons };
+  }
+
+  const failed = deliveries.filter((delivery) => !delivery.ok);
+  if (failed.length > 0) {
+    deps.store.updateLeadStatus(lead.id, 'failed');
+    lead.status = 'failed';
+    return {
+      status: 'failed',
+      lead,
+      error: failed.map((delivery) => `${delivery.sink}: ${delivery.error ?? 'unknown'}`).join('; '),
+      reasons,
+    };
+  }
+
+  const deliveredAt = new Date().toISOString();
+  deps.store.updateLeadStatus(lead.id, 'delivered', deliveredAt);
+  lead.status = 'delivered';
+  lead.deliveredAt = deliveredAt;
+  return { status: 'delivered', lead, reasons };
+}
+
+export interface IngestSummary {
+  found: number;
+  inserted: number;
+  duplicates: number;
+  rejected: number;
+  delivered: number;
+  failed: number;
+  outcomes: IngestOutcome[];
+}
+
+export async function ingestRawLeads(
+  raws: RawLead[],
+  source: SourceRecord,
+  deps: IngestDeps,
+): Promise<IngestSummary> {
+  const summary: IngestSummary = {
+    found: raws.length,
+    inserted: 0,
+    duplicates: 0,
+    rejected: 0,
+    delivered: 0,
+    failed: 0,
+    outcomes: [],
+  };
+
+  for (const raw of raws) {
+    const outcome = await ingestRawLead(raw, source, deps);
+    summary.outcomes.push(outcome);
+    if (outcome.status === 'inserted') summary.inserted += 1;
+    else if (outcome.status === 'duplicate') summary.duplicates += 1;
+    else if (outcome.status === 'rejected') summary.rejected += 1;
+    else if (outcome.status === 'delivered') {
+      summary.inserted += 1;
+      summary.delivered += 1;
+    } else if (outcome.status === 'failed') {
+      summary.inserted += 1;
+      summary.failed += 1;
+    }
+  }
+
+  return summary;
+}

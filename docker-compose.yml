@@ -1,0 +1,10 @@
+services:
+  radar:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data

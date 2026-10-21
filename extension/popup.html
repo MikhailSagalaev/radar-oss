@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Radar</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <strong>Radar</strong>
+    <span>отправить страницу</span>
+  </header>
+
+  <form id="config">
+    <label>Адрес Radar
+      <input id="base" type="url" placeholder="http://127.0.0.1:8787" required>
+    </label>
+    <label>ID источника
+      <input id="sourceId" type="text" placeholder="webhook_..." required>
+    </label>
+    <label>Токен источника
+      <input id="token" type="password" placeholder="token" required>
+    </label>
+    <button type="submit" class="ghost">Сохранить</button>
+  </form>
+
+  <button id="send" type="button">Отправить страницу</button>
+  <p id="status" class="status"></p>
+
+  <script src="popup.js"></script>
+</body>
+</html>
