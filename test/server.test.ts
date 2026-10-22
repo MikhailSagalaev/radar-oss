@@ -15,6 +15,22 @@ function makeRuntime(): Runtime {
   };
 }
 
+function makeOpenRuntime(): Runtime {
+  const base = makeTestRuntime();
+  return {
+    env: base.env,
+    logger: base.logger,
+    store: base.store,
+    sources: base.sources,
+    sinks: base.sinks,
+    fetchImpl: fetch,
+  };
+}
+
+function formBody(values: Record<string, string>): string {
+  return new URLSearchParams(values).toString();
+}
+
 describe('http server', () => {
   it('exposes health without auth', async () => {
     const runtime = makeRuntime();
@@ -123,6 +139,86 @@ describe('http server', () => {
     const list = (await leads.json()) as Array<{ title: string }>;
     expect(list).toHaveLength(1);
     expect(list[0]?.title).toContain('сантехник');
+    runtime.store.close();
+  });
+
+  it('creates a source from the dashboard form', async () => {
+    const runtime = makeOpenRuntime();
+    const app = createApp(runtime);
+
+    const page = await app.request('/sources/new');
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('Новый источник');
+
+    const response = await app.request('/sources', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: formBody({
+        kind: 'rss',
+        title: 'UI feed',
+        url: 'https://example.com/rss',
+        includeKeywords: 'сантехник, электрик',
+        city: 'Ставрополь',
+      }),
+    });
+
+    expect(response.status).toBe(302);
+    const sources = runtime.store.listSources();
+    expect(sources).toHaveLength(1);
+    expect(sources[0]?.title).toBe('UI feed');
+    expect(sources[0]?.config.includeKeywords).toEqual(['сантехник', 'электрик']);
+    expect(response.headers.get('location')).toBe(`/sources/${sources[0]?.id}`);
+    runtime.store.close();
+  });
+
+  it('shows a webhook token once after creation', async () => {
+    const runtime = makeOpenRuntime();
+    const app = createApp(runtime);
+
+    const response = await app.request('/sources', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: formBody({ kind: 'webhook', title: 'Browser' }),
+    });
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain('Токен');
+    const sources = runtime.store.listSources();
+    expect(sources[0]?.config.token).toMatch(/^[a-f0-9]{32}$/);
+    runtime.store.close();
+  });
+
+  it('rejects cross-origin form posts', async () => {
+    const runtime = makeOpenRuntime();
+    const app = createApp(runtime);
+
+    const response = await app.request('/sources', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        origin: 'https://evil.example',
+      },
+      body: formBody({ kind: 'rss', title: 'Evil', url: 'https://example.com/rss' }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(runtime.store.listSources()).toHaveLength(0);
+    runtime.store.close();
+  });
+
+  it('toggles and deletes a source from the dashboard', async () => {
+    const runtime = makeOpenRuntime();
+    const source = runtime.store.createSource({ kind: 'rss', title: 'Toggle me' });
+    const app = createApp(runtime);
+
+    const toggle = await app.request(`/sources/${source.id}/toggle`, { method: 'POST' });
+    expect(toggle.status).toBe(302);
+    expect(runtime.store.getSource(source.id)?.enabled).toBe(false);
+
+    const remove = await app.request(`/sources/${source.id}/delete`, { method: 'POST' });
+    expect(remove.status).toBe(302);
+    expect(runtime.store.getSource(source.id)).toBeNull();
     runtime.store.close();
   });
 });

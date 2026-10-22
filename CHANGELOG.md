@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- Sources can be added, enabled, disabled and deleted from the dashboard.
+- New source form covers RSS, Telegram, Kwork, IMAP and webhook; webhook tokens are shown once.
+- Updated CI actions to checkout v7, setup-node v7 and pnpm/action-setup v6.
+- Added tests for the dashboard source flow.
+
 ## 0.2.0
 
 - Added an IMAP source for job-alert emails; credentials stay in an environment variable.

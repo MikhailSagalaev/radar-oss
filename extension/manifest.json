@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Radar — отправить страницу",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Отправляет текущую страницу или выделенный текст в ваш self-hosted Radar.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["http://*/*", "https://*/*"],

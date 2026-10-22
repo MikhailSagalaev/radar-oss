@@ -17,6 +17,47 @@ export interface SourcePageData {
   version: string;
 }
 
+export interface SourceFormValues {
+  kind: string;
+  title: string;
+  url: string;
+  channel: string;
+  categoryId: string;
+  city: string;
+  includeKeywords: string;
+  excludeKeywords: string;
+  minBudget: string;
+  limit: string;
+  host: string;
+  port: string;
+  user: string;
+  passwordEnv: string;
+  mailbox: string;
+  sinceDays: string;
+  subjectIncludes: string;
+}
+
+export interface NewSourcePageData {
+  version: string;
+  kinds: string[];
+  values: SourceFormValues;
+  error?: string;
+}
+
+export interface CreatedSourcePageData {
+  version: string;
+  source: SourceRecord;
+  token: string;
+}
+
+const KIND_LABELS: Record<string, string> = {
+  rss: 'RSS / Atom',
+  telegram: 'Telegram-канал',
+  kwork: 'Kwork',
+  imap: 'IMAP-почта',
+  webhook: 'Webhook / расширение',
+};
+
 const STYLE = `
 :root{--bg:#fafafa;--ink:#171717;--muted:#737373;--line:#e5e5e5;--ok:#15803d;--err:#b91c1c;--warn:#a16207}
 *{box-sizing:border-box}
@@ -59,7 +100,20 @@ dd{margin:0;word-break:break-word}
 .error{color:var(--err)}
 code{font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;background:#f0f0f0;padding:1px 5px;border-radius:3px}
 .back{display:inline-block;margin-bottom:14px;color:var(--muted);font-size:12px}
-@media(max-width:700px){dl{grid-template-columns:1fr}.metrics{gap:18px}main{padding:24px 14px 56px}}
+.form{display:grid;gap:16px;max-width:760px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.field{display:grid;gap:5px;color:var(--muted);font-size:12px}
+.field input,.field select{width:100%;padding:8px;border:1px solid var(--line);border-radius:5px;background:#fff;color:var(--ink);font:inherit;font-size:13px}
+.field input:focus,.field select:focus{outline:1px solid var(--ink);border-color:var(--ink)}
+fieldset{border:1px solid var(--line);border-radius:6px;padding:14px;margin:0;display:grid;gap:12px}
+legend{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:0 6px}
+.hint{color:var(--muted);font-size:12px}
+.error-box{border:1px solid #fecaca;background:#fef2f2;color:var(--err);padding:10px 12px;border-radius:5px;font-size:13px}
+.inline{display:inline}
+.btn.danger{color:var(--err);border-color:#fecaca}
+pre.token{background:#f0f0f0;border:1px solid var(--line);border-radius:5px;padding:12px;overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
+[hidden]{display:none!important}
+@media(max-width:700px){dl{grid-template-columns:1fr}.metrics{gap:18px}main{padding:24px 14px 56px}.grid{grid-template-columns:1fr}}
 `;
 
 function layout(input: {
@@ -216,6 +270,128 @@ function runsTable(
   </table>`;
 }
 
+function textField(
+  name: string,
+  label: string,
+  value: string,
+  placeholder = '',
+  type = 'text',
+  hint?: string,
+): string {
+  return `<label class="field">${escapeHtml(label)}
+    <input type="${escapeHtml(type)}" name="${escapeHtml(name)}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}">
+    ${hint ? `<span class="hint">${escapeHtml(hint)}</span>` : ''}
+  </label>`;
+}
+
+export function renderNewSourcePage(data: NewSourcePageData): string {
+  const { kinds, values, error, version } = data;
+  const options = kinds
+    .map(
+      (kind) =>
+        `<option value="${escapeHtml(kind)}"${kind === values.kind ? ' selected' : ''}>${escapeHtml(KIND_LABELS[kind] ?? kind)}</option>`,
+    )
+    .join('');
+
+  const body = `
+<a class="back" href="/">← Все источники</a>
+<h1>Новый источник</h1>
+<p class="hint" style="margin-bottom:20px">RSS и IMAP — самые устойчивые. Telegram и Kwork зависят от публичной вёрстки. Webhook принимает данные от расширения или другого сервиса.</p>
+${error ? `<div class="error-box" style="margin-bottom:16px">${escapeHtml(error)}</div>` : ''}
+
+<form class="form" method="post" action="/sources">
+  <div class="grid">
+    <label class="field">Тип
+      <select name="kind" id="kind">${options}</select>
+    </label>
+    <label class="field">Название
+      <input name="title" value="${escapeHtml(values.title)}" placeholder="Например, Городские чаты" required>
+    </label>
+  </div>
+
+  <div data-kind="rss">
+    ${textField('url', 'URL фида', values.url, 'https://example.com/rss', 'url', 'RSS или Atom. Самый безопасный источник.')}
+  </div>
+
+  <div data-kind="telegram">
+    ${textField('channel', 'Публичный канал', values.channel, 'stavropol_jobs', 'text', 'Без @. Читается только публичный preview t.me/s/.')}
+  </div>
+
+  <div data-kind="kwork">
+    ${textField('categoryId', 'ID рубрики Kwork', values.categoryId, '11', 'text', 'Необязательно. Пусто — все проекты.')}
+  </div>
+
+  <div data-kind="webhook">
+    <p class="hint">Токен источника будет сгенерирован автоматически и показан один раз после создания.</p>
+  </div>
+
+  <div data-kind="imap">
+    <fieldset>
+      <legend>IMAP</legend>
+      <div class="grid">
+        ${textField('host', 'Хост', values.host, 'imap.example.com')}
+        ${textField('port', 'Порт', values.port || '993', '993', 'number')}
+        ${textField('user', 'Пользователь', values.user, 'radar@example.com')}
+        ${textField('passwordEnv', 'Переменная с паролем', values.passwordEnv, 'RADAR_IMAP_PASSWORD', 'text', 'Имя env-переменной, не сам пароль.')}
+        ${textField('mailbox', 'Папка', values.mailbox || 'INBOX', 'INBOX')}
+        ${textField('sinceDays', 'Дней назад', values.sinceDays || '7', '7', 'number')}
+      </div>
+      ${textField('subjectIncludes', 'Фильтр по теме', values.subjectIncludes, 'заказ, срочно', 'text', 'Через запятую. Пусто — все письма.')}
+    </fieldset>
+  </div>
+
+  <fieldset>
+    <legend>Общие фильтры</legend>
+    <div class="grid">
+      ${textField('city', 'Город', values.city, 'Ставрополь')}
+      ${textField('minBudget', 'Минимальный бюджет, ₽', values.minBudget, '1000', 'number')}
+      ${textField('limit', 'Лимит за опрос', values.limit, '20', 'number')}
+    </div>
+    ${textField('includeKeywords', 'Обязательные слова', values.includeKeywords, 'сантехник, электрик', 'text', 'Через запятую. Лид без них будет отклонён.')}
+    ${textField('excludeKeywords', 'Стоп-слова', values.excludeKeywords, 'бесплатно, вакансия', 'text', 'Через запятую.')}
+  </fieldset>
+
+  <div>
+    <button class="btn" type="submit">Создать источник</button>
+  </div>
+</form>
+
+<script>
+const kind = document.getElementById('kind');
+function syncKind() {
+  if (!kind) return;
+  for (const group of document.querySelectorAll('[data-kind]')) {
+    group.hidden = group.dataset.kind !== kind.value;
+  }
+}
+kind?.addEventListener('change', syncKind);
+syncKind();
+</script>`;
+
+  return layout({
+    title: 'Новый источник',
+    version,
+    body,
+    actions: '<a class="btn ghost" href="/">Отмена</a>',
+  });
+}
+
+export function renderSourceCreatedPage(data: CreatedSourcePageData): string {
+  const { source, token, version } = data;
+  const body = `
+<a class="back" href="/">← Все источники</a>
+<h1>Источник создан</h1>
+<p class="hint">Токен показывается один раз. Сохраните его — он понадобится расширению или внешнему сервису.</p>
+<pre class="token">${escapeHtml(token)}</pre>
+<p style="margin-top:16px"><a class="btn" href="/sources/${escapeHtml(source.id)}">Открыть источник</a></p>`;
+
+  return layout({
+    title: 'Источник создан',
+    version,
+    body,
+  });
+}
+
 export function renderDashboard(data: DashboardData): string {
   const { stats, health, leads, runs, version } = data;
   const sourceById = new Map(health.map((item) => [item.source.id, item.source]));
@@ -253,7 +429,7 @@ export function renderDashboard(data: DashboardData): string {
         <thead><tr><th>Источник</th><th>Тип</th><th>Статус</th><th>Последний запуск</th><th>24ч найдено / новых / доставлено</th><th>Ошибка</th></tr></thead>
         <tbody>${sourceRows}</tbody>
       </table>`
-    : '<div class="empty">Источников нет. Добавьте: <code>radar source add --kind rss --title Feed --url ...</code></div>'}
+    : '<div class="empty">Источников нет. <a href="/sources/new">Добавьте первый</a> или используйте <code>radar source add</code>.</div>'}
 </section>
 
 <section>
@@ -272,7 +448,7 @@ export function renderDashboard(data: DashboardData): string {
     title: 'Лиды',
     version,
     body,
-    actions: '<button class="btn" data-poll="/api/poll">Опросить все</button>',
+    actions: '<a class="btn ghost" href="/sources/new">Добавить</a><button class="btn" data-poll="/api/poll">Опросить все</button>',
     script: POLL_SCRIPT,
   });
 }
@@ -336,7 +512,13 @@ export function renderSourcePage(data: SourcePageData): string {
     title: source.title,
     version,
     body,
-    actions: `<button class="btn" data-poll="/api/sources/${escapeHtml(source.id)}/poll">Опросить</button>`,
+    actions: `<button class="btn" data-poll="/api/sources/${escapeHtml(source.id)}/poll">Опросить</button>
+      <form class="inline" method="post" action="/sources/${escapeHtml(source.id)}/toggle">
+        <button class="btn ghost" type="submit">${source.enabled ? 'Выключить' : 'Включить'}</button>
+      </form>
+      <form class="inline" method="post" action="/sources/${escapeHtml(source.id)}/delete" onsubmit="return confirm('Удалить источник?')">
+        <button class="btn ghost danger" type="submit">Удалить</button>
+      </form>`,
     script: POLL_SCRIPT,
   });
 }

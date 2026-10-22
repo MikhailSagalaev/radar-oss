@@ -6,7 +6,7 @@ Self-hosted lead pipeline for public order sources.
 
 Radar watches the sources you configure, normalizes new orders, removes duplicates, filters spam, scores relevance and delivers leads to Telegram, a webhook or the console. It is a small, inspectable alternative to paid "lead radar" channels.
 
-**Status: early v0.2.** It is not a hosted service and it does not promise to scrape every marketplace. It gives you a pipeline, a few working adapters and a clear contract for adding more.
+**Status: early v0.2.1.** It is not a hosted service and it does not promise to scrape every marketplace. It gives you a pipeline, a few working adapters and a clear contract for adding more.
 
 ![Radar dashboard](docs/screenshots/dashboard.png)
 
@@ -36,6 +36,7 @@ Small teams and freelancers often pay for Telegram channels that resell the same
 - Sinks: console, Telegram Bot API, generic webhook.
 - Per-source health: 24-hour counters, success rate, last run and a detail page.
 - CLI, HTTP API and a minimal server-rendered dashboard.
+- Add, enable, disable and delete sources from the dashboard; webhook tokens are shown once.
 - A Manifest V3 browser extension for sending the current page to a webhook source.
 - Tests with fixtures for every adapter.
 
@@ -168,7 +169,9 @@ The dashboard shows one row per source: status, last run and 24-hour counters. C
 | `GET` | `/api/runs` | recent runs |
 | `POST` | `/api/ingest/:sourceId` | accept a lead from a webhook source |
 
-The dashboard is at `/`; a source detail page with health, config, leads and runs is at `/sources/:id`.
+The dashboard is at `/`; a source detail page with health, config, leads and runs is at `/sources/:id`. New sources are added at `/sources/new` — the same form works for RSS, Telegram, Kwork, IMAP and webhook.
+
+![New source](docs/screenshots/new-source.png)
 
 Authentication: `Authorization: Bearer <RADAR_ADMIN_TOKEN>` or `x-radar-token`. A webhook source may have its own `config.token` and accepts `x-radar-token: <source token>` on `/api/ingest/:sourceId`.
 
