@@ -376,8 +376,8 @@ export class SqliteStore implements Store {
         .replace(/\s+/g, ' ')
         .trim();
       if (needle) {
-        clauses.push('title_key LIKE ?');
-        params.push(`%${needle}%`);
+        clauses.push('(title_key LIKE ? OR text LIKE ? OR city LIKE ?)');
+        params.push(`%${needle}%`, `%${options.query.trim()}%`, `%${needle}%`);
       }
     }
 
