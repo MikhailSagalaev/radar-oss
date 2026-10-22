@@ -251,6 +251,14 @@ function toRawLead(body: Record<string, unknown>, sourceId: string): RawLead | n
   const text = asString(body.text);
   const title = asString(body.title);
   if (!text && !title) return null;
+  const skills = Array.isArray(body.skills)
+    ? body.skills.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+    : undefined;
+  const metadata =
+    typeof body.metadata === 'object' && body.metadata !== null
+      ? (body.metadata as Record<string, unknown>)
+      : undefined;
+
   return {
     sourceId,
     externalId: asString(body.externalId),
@@ -260,6 +268,11 @@ function toRawLead(body: Record<string, unknown>, sourceId: string): RawLead | n
     author: asString(body.author),
     city: asString(body.city),
     budget: asNumber(body.budget),
+    currency: asString(body.currency) ?? 'RUB',
+    category: asString(body.category),
+    skills,
+    isRemote: typeof body.isRemote === 'boolean' ? body.isRemote : true,
+    metadata,
     publishedAt: asString(body.publishedAt),
     raw: body,
   };

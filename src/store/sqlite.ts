@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS leads (
   author TEXT,
   city TEXT,
   budget REAL,
+  currency TEXT DEFAULT 'RUB',
+  category TEXT,
+  skills_json TEXT DEFAULT '[]',
+  is_remote INTEGER DEFAULT 1,
+  metadata_json TEXT DEFAULT '{}',
   published_at TEXT,
   fingerprint TEXT NOT NULL,
   title_key TEXT NOT NULL,
@@ -111,6 +116,11 @@ interface LeadRow {
   author: string | null;
   city: string | null;
   budget: number | null;
+  currency: string | null;
+  category: string | null;
+  skills_json: string | null;
+  is_remote: number | null;
+  metadata_json: string | null;
   published_at: string | null;
   fingerprint: string;
   title_key: string;
@@ -166,6 +176,11 @@ function rowToLead(row: LeadRow): Lead {
     author: row.author ?? undefined,
     city: row.city ?? undefined,
     budget: row.budget ?? undefined,
+    currency: row.currency ?? 'RUB',
+    category: row.category ?? undefined,
+    skills: parseJson<string[]>(row.skills_json || '[]', []),
+    isRemote: row.is_remote !== null && row.is_remote !== undefined ? row.is_remote === 1 : true,
+    metadata: parseJson<Record<string, unknown>>(row.metadata_json || '{}', {}),
     publishedAt: row.published_at ?? undefined,
     fingerprint: row.fingerprint,
     titleKey: row.title_key,
@@ -204,6 +219,31 @@ export class SqliteStore implements Store {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.db.exec(SCHEMA);
+    this.ensureLeadColumns();
+  }
+
+  private ensureLeadColumns(): void {
+    try {
+      const tableInfo = this.db.prepare("PRAGMA table_info('leads')").all() as Array<{ name: string }>;
+      const cols = new Set(tableInfo.map((c) => c.name));
+      if (!cols.has('category')) {
+        this.db.exec('ALTER TABLE leads ADD COLUMN category TEXT;');
+      }
+      if (!cols.has('currency')) {
+        this.db.exec("ALTER TABLE leads ADD COLUMN currency TEXT DEFAULT 'RUB';");
+      }
+      if (!cols.has('skills_json')) {
+        this.db.exec("ALTER TABLE leads ADD COLUMN skills_json TEXT DEFAULT '[]';");
+      }
+      if (!cols.has('is_remote')) {
+        this.db.exec('ALTER TABLE leads ADD COLUMN is_remote INTEGER DEFAULT 1;');
+      }
+      if (!cols.has('metadata_json')) {
+        this.db.exec("ALTER TABLE leads ADD COLUMN metadata_json TEXT DEFAULT '{}';");
+      }
+    } catch {
+      // ignore
+    }
   }
 
   listSources(): SourceRecord[] {
@@ -322,9 +362,10 @@ export class SqliteStore implements Store {
       .prepare(
         `INSERT OR IGNORE INTO leads (
            id, source_id, external_id, url, canonical_url, title, text, author,
-           city, budget, published_at, fingerprint, title_key, status, score,
+           city, budget, currency, category, skills_json, is_remote, metadata_json,
+           published_at, fingerprint, title_key, status, score,
            reasons_json, created_at, delivered_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         lead.id,
@@ -337,6 +378,11 @@ export class SqliteStore implements Store {
         lead.author ?? null,
         lead.city ?? null,
         lead.budget ?? null,
+        lead.currency ?? 'RUB',
+        lead.category ?? null,
+        JSON.stringify(lead.skills ?? []),
+        lead.isRemote === false ? 0 : 1,
+        JSON.stringify(lead.metadata ?? {}),
         lead.publishedAt ?? null,
         lead.fingerprint,
         lead.titleKey,
@@ -369,15 +415,26 @@ export class SqliteStore implements Store {
       params.push(options.sourceId);
     }
     if (options.query?.trim()) {
-      const needle = options.query
+      const rawNeedle = options.query.trim();
+      const needle = rawNeedle
         .toLocaleLowerCase('ru-RU')
         .replace(/\u0451/g, '\u0435')
         .replace(/[^\p{L}\p{N}]+/gu, ' ')
         .replace(/\s+/g, ' ')
         .trim();
-      if (needle) {
-        clauses.push('(title_key LIKE ? OR text LIKE ? OR city LIKE ?)');
-        params.push(`%${needle}%`, `%${options.query.trim()}%`, `%${needle}%`);
+      if (needle || rawNeedle) {
+        clauses.push(
+          '(title_key LIKE ? OR text LIKE ? OR text LIKE ? OR city LIKE ? OR city LIKE ? OR category LIKE ? OR category LIKE ?)',
+        );
+        params.push(
+          `%${needle}%`,
+          `%${rawNeedle}%`,
+          `%${needle}%`,
+          `%${rawNeedle}%`,
+          `%${needle}%`,
+          `%${rawNeedle}%`,
+          `%${needle}%`,
+        );
       }
     }
 

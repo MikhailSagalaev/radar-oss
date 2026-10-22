@@ -64,7 +64,12 @@ export interface RawLead {
   author?: string;
   city?: string;
   budget?: number;
+  currency?: string;
+  category?: string;
+  skills?: string[];
+  isRemote?: boolean;
   publishedAt?: string;
+  metadata?: Record<string, unknown>;
   raw?: Record<string, unknown>;
 }
 

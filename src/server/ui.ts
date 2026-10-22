@@ -697,17 +697,25 @@ function leadTitle(lead: Lead): string {
 function leadRow(lead: Lead, source?: SourceRecord): string {
   const meta = [
     source?.title,
-    lead.city,
+    lead.category,
+    lead.city ?? (lead.isRemote !== false ? 'Удаленно' : undefined),
     typeof lead.budget === 'number' ? formatBudget(lead.budget) : undefined,
     formatRelative(lead.createdAt),
   ]
     .filter(Boolean)
     .join(' · ');
 
+  const skillsChips = lead.skills?.length
+    ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
+        ${lead.skills.slice(0, 4).map((s) => `<span class="tag" style="font-size:10.5px;padding:1px 6px">${escapeHtml(s)}</span>`).join('')}
+      </div>`
+    : '';
+
   return `<a class="row" href="/leads/${escapeHtml(lead.id)}">
     <div>
       <div class="row-title">${escapeHtml(leadTitle(lead))}</div>
       <div class="row-meta">${escapeHtml(meta)}</div>
+      ${skillsChips}
     </div>
     <div class="row-side">
       <span class="score">${lead.score}</span>
@@ -895,13 +903,20 @@ document.getElementById('copy-lead')?.addEventListener('click', async (event) =>
     <h2>Детали</h2>
     <dl class="meta-list">
       <div><dt>Источник</dt><dd>${source ? `<a href="/sources/${escapeHtml(source.id)}">${escapeHtml(source.title)}</a>` : escapeHtml(lead.sourceId)}</dd></div>
-      <div><dt>Город</dt><dd>${escapeHtml(lead.city ?? '—')}</dd></div>
+      ${lead.category ? `<div><dt>Категория</dt><dd><b>${escapeHtml(lead.category)}</b></dd></div>` : ''}
+      <div><dt>Локация</dt><dd>${escapeHtml(lead.city ?? (lead.isRemote !== false ? 'Удалённо' : '—'))}</dd></div>
+      <div><dt>Формат</dt><dd>${lead.isRemote !== false ? 'Удалённая работа' : 'На объекте / Офлайн'}</dd></div>
       <div><dt>Бюджет</dt><dd>${formatBudget(lead.budget)}</dd></div>
       <div><dt>Скор</dt><dd>${lead.score}</dd></div>
       <div><dt>Опубликован</dt><dd>${formatDate(lead.publishedAt)}</dd></div>
       <div><dt>Добавлен</dt><dd>${formatDate(lead.createdAt)}</dd></div>
       ${lead.author ? `<div><dt>Автор</dt><dd>${escapeHtml(lead.author)}</dd></div>` : ''}
     </dl>
+    ${lead.skills?.length ? `
+      <h2 style="margin-top:20px">Навыки и стек</h2>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        ${lead.skills.map((s) => `<span class="tag">${escapeHtml(s)}</span>`).join('')}
+      </div>` : ''}
   </aside>
 </div>`;
 

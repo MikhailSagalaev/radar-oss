@@ -24,6 +24,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "tsx test/e2e-tester.ts",
     "start": "node bin/radar.js",
     "rebuild": "pnpm rebuild"
   },

@@ -59,6 +59,9 @@ export async function ingestRawLead(
   const reasons = [...rules.reasons];
   let city = prepared.city;
   let score = rules.score;
+  let category = prepared.category;
+  let skills = prepared.skills ? [...prepared.skills] : [];
+  const metadata: Record<string, unknown> = { ...(prepared.metadata ?? {}) };
 
   if (rules.accepted && deps.classifier) {
     try {
@@ -75,6 +78,14 @@ export async function ingestRawLead(
         } else if (classification.isLead) {
           reasons.push(`llm:lead:${classification.confidence.toFixed(2)}`);
           if (!city && classification.city) city = classification.city;
+          if (!category && classification.category) category = classification.category;
+          if (classification.skills?.length) {
+            skills = Array.from(new Set([...skills, ...classification.skills]));
+          }
+          if (classification.urgency) metadata.urgency = classification.urgency;
+          if (classification.summary) metadata.summary = classification.summary;
+          if (classification.confidence) metadata.aiConfidence = classification.confidence;
+
           if (prepared.budget === undefined && classification.estimatedBudget) {
             prepared.budget = classification.estimatedBudget;
             reasons.push(`llm:budget:${classification.estimatedBudget}`);
@@ -104,6 +115,11 @@ export async function ingestRawLead(
     author: prepared.author,
     city,
     budget: prepared.budget,
+    currency: prepared.currency ?? 'RUB',
+    category,
+    skills,
+    isRemote: prepared.isRemote !== false,
+    metadata,
     publishedAt: prepared.publishedAt,
     fingerprint: prepared.fingerprint,
     titleKey: prepared.titleKey,
