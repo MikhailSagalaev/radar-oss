@@ -87,9 +87,11 @@ CREATE TABLE IF NOT EXISTS runs (
   source_id TEXT NOT NULL,
   started_at TIMESTAMPTZ NOT NULL,
   finished_at TIMESTAMPTZ,
-  leads_found INTEGER NOT NULL DEFAULT 0,
-  leads_new INTEGER NOT NULL DEFAULT 0,
-  leads_delivered INTEGER NOT NULL DEFAULT 0,
+  found INTEGER NOT NULL DEFAULT 0,
+  inserted INTEGER NOT NULL DEFAULT 0,
+  duplicates INTEGER NOT NULL DEFAULT 0,
+  rejected INTEGER NOT NULL DEFAULT 0,
+  delivered INTEGER NOT NULL DEFAULT 0,
   error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_runs_source_started ON runs(source_id, started_at DESC);
@@ -361,81 +363,101 @@ export class PostgresStore {
   }
 
   async getStats(): Promise<Stats> {
-    const totalsRes = await this.pool.query(`
-      SELECT 
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE status = 'qualified') as qualified,
-        COUNT(*) FILTER (WHERE status = 'delivered') as delivered,
-        COUNT(*) FILTER (WHERE status = 'rejected') as rejected,
-        COUNT(*) FILTER (WHERE status = 'pending') as pending
-      FROM leads
-    `);
-    const t = totalsRes.rows[0];
+    const one = async (sql: string, params: any[] = []): Promise<number> => {
+      const res = await this.pool.query(sql, params);
+      return parseInt(res.rows[0]?.count, 10) || 0;
+    };
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
 
-    const todayRes = await this.pool.query(`
-      SELECT 
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE status = 'qualified') as qualified,
-        COUNT(*) FILTER (WHERE status = 'delivered') as delivered
-      FROM leads
-      WHERE created_at >= date_trunc('day', NOW())
-    `);
-    const td = todayRes.rows[0];
+    const [sources, enabledSources, leads, newLeads, deliveredLeads, rejectedLeads, last24h] =
+      await Promise.all([
+        one('SELECT COUNT(*) AS count FROM sources'),
+        one('SELECT COUNT(*) AS count FROM sources WHERE enabled = TRUE'),
+        one('SELECT COUNT(*) AS count FROM leads'),
+        one("SELECT COUNT(*) AS count FROM leads WHERE status = 'new'"),
+        one("SELECT COUNT(*) AS count FROM leads WHERE status = 'delivered'"),
+        one("SELECT COUNT(*) AS count FROM leads WHERE status = 'rejected'"),
+        one('SELECT COUNT(*) AS count FROM leads WHERE created_at >= $1', [since]),
+      ]);
 
     return {
-      totalLeads: parseInt(t.total, 10) || 0,
-      qualifiedLeads: parseInt(t.qualified, 10) || 0,
-      deliveredLeads: parseInt(t.delivered, 10) || 0,
-      rejectedLeads: parseInt(t.rejected, 10) || 0,
-      pendingLeads: parseInt(t.pending, 10) || 0,
-      todayLeads: parseInt(td.total, 10) || 0,
-      todayQualified: parseInt(td.qualified, 10) || 0,
-      todayDelivered: parseInt(td.delivered, 10) || 0,
+      sources,
+      enabledSources,
+      leads,
+      newLeads,
+      deliveredLeads,
+      rejectedLeads,
+      last24h,
     };
   }
 
   async getSourceHealth(): Promise<SourceHealth[]> {
-    const res = await this.pool.query(`
-      SELECT 
-        s.id,
-        s.title,
-        s.kind,
-        s.enabled,
-        COALESCE(SUM(r.leads_found), 0) as total_found,
-        COALESCE(SUM(r.leads_delivered), 0) as total_delivered,
-        MAX(r.started_at) as last_seen_at,
-        (SELECT error FROM runs WHERE source_id = s.id ORDER BY started_at DESC LIMIT 1) as last_error
-      FROM sources s
-      LEFT JOIN runs r ON r.source_id = s.id
-      GROUP BY s.id, s.title, s.kind, s.enabled
-      ORDER BY s.title ASC
-    `);
+    const sources = await this.listSources();
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
 
-    return res.rows.map(r => ({
-      sourceId: r.id,
-      title: r.title,
-      kind: r.kind,
-      enabled: Boolean(r.enabled),
-      totalFound: parseInt(r.total_found, 10) || 0,
-      totalDelivered: parseInt(r.total_delivered, 10) || 0,
-      lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null,
-      lastError: r.last_error || null,
-      ok: !r.last_error,
-    }));
+    const aggregateRes = await this.pool.query(
+      `SELECT source_id,
+              COALESCE(SUM(found), 0) AS found,
+              COALESCE(SUM(inserted), 0) AS inserted,
+              COALESCE(SUM(duplicates), 0) AS duplicates,
+              COALESCE(SUM(rejected), 0) AS rejected,
+              COALESCE(SUM(delivered), 0) AS delivered,
+              COALESCE(SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END), 0) AS errors,
+              COUNT(*) AS runs
+       FROM runs
+       WHERE started_at >= $1
+       GROUP BY source_id`,
+      [since]
+    );
+
+    const aggregate = new Map(aggregateRes.rows.map(r => [r.source_id, r]));
+
+    const lastRunsRes = await this.pool.query(
+      `SELECT r.* FROM runs r
+       JOIN (
+         SELECT source_id, MAX(started_at) AS max_started
+         FROM runs GROUP BY source_id
+       ) latest
+         ON latest.source_id = r.source_id AND latest.max_started = r.started_at`
+    );
+
+    const lastBySource = new Map(lastRunsRes.rows.map(r => [r.source_id, this.rowToRun(r)]));
+
+    return sources.map((source) => {
+      const row = aggregate.get(source.id);
+      const runs = parseInt(row?.runs, 10) || 0;
+      const errors = parseInt(row?.errors, 10) || 0;
+      return {
+        source,
+        lastRun: lastBySource.get(source.id),
+        last24h: {
+          found: parseInt(row?.found, 10) || 0,
+          inserted: parseInt(row?.inserted, 10) || 0,
+          duplicates: parseInt(row?.duplicates, 10) || 0,
+          rejected: parseInt(row?.rejected, 10) || 0,
+          delivered: parseInt(row?.delivered, 10) || 0,
+          errors,
+          runs,
+        },
+        successRate: runs === 0 ? 1 : Math.max(0, (runs - errors) / runs),
+      };
+    });
   }
 
   async recordRun(run: RunRecord): Promise<void> {
     await this.pool.query(
-      `INSERT INTO runs (id, source_id, started_at, finished_at, leads_found, leads_new, leads_delivered, error)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO runs (id, source_id, started_at, finished_at, found, inserted, duplicates, rejected, delivered, error)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         run.id,
         run.sourceId,
         new Date(run.startedAt),
         run.finishedAt ? new Date(run.finishedAt) : null,
-        run.leadsFound,
-        run.leadsNew,
-        run.leadsDelivered,
+        run.found,
+        run.inserted,
+        run.duplicates,
+        run.rejected,
+        run.delivered,
         run.error ?? null,
       ]
     );
@@ -448,16 +470,22 @@ export class PostgresStore {
     const params = sourceId ? [sourceId, limit] : [limit];
     const res = await this.pool.query(query, params);
 
-    return res.rows.map(r => ({
+    return res.rows.map(r => this.rowToRun(r));
+  }
+
+  private rowToRun(r: any): RunRecord {
+    return {
       id: r.id,
       sourceId: r.source_id,
       startedAt: new Date(r.started_at).toISOString(),
       finishedAt: r.finished_at ? new Date(r.finished_at).toISOString() : undefined,
-      leadsFound: r.leads_found,
-      leadsNew: r.leads_new,
-      leadsDelivered: r.leads_delivered,
+      found: parseInt(r.found, 10) || 0,
+      inserted: parseInt(r.inserted, 10) || 0,
+      duplicates: parseInt(r.duplicates, 10) || 0,
+      rejected: parseInt(r.rejected, 10) || 0,
+      delivered: parseInt(r.delivered, 10) || 0,
       error: r.error || undefined,
-    }));
+    };
   }
 
   private rowToLead(r: any): Lead {
