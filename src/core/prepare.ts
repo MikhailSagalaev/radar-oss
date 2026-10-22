@@ -28,7 +28,8 @@ export function prepareRawLead(
   const title = cleanTitle(raw.title, text);
   const normalizedText = text || title;
   const url = raw.url?.trim();
-  const canonicalUrl = url && isHttpUrl(url) ? canonicalizeUrl(url) : undefined;
+  const safeHttpUrl = url && isHttpUrl(url) ? url : undefined;
+  const canonicalUrl = safeHttpUrl ? canonicalizeUrl(safeHttpUrl) : undefined;
 
   const explicitBudget =
     typeof raw.budget === 'number' && Number.isFinite(raw.budget) && raw.budget >= 0
@@ -50,7 +51,7 @@ export function prepareRawLead(
     ...raw,
     title,
     text: normalizedText,
-    url: canonicalUrl ?? url,
+    url: canonicalUrl ?? safeHttpUrl,
     canonicalUrl,
     budget,
     city,

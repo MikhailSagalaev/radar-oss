@@ -231,7 +231,7 @@ describe('http server', () => {
 
     const leads = await app.request('/');
     expect(leads.status).toBe(200);
-    expect(await leads.text()).toContain('Лиды');
+    expect(await leads.text()).toContain('Radar');
 
     const sources = await app.request('/sources');
     expect(sources.status).toBe(200);

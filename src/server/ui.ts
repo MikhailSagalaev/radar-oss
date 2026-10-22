@@ -276,18 +276,16 @@ a:hover { text-decoration: underline; }
 .row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
-  padding: 13px 10px;
+  gap: 20px;
+  padding: 16px 0;
   border-bottom: 1px solid var(--line);
   text-decoration: none;
   color: inherit;
-  border-radius: 6px;
-  transition: all 0.15s ease;
+  transition: opacity 0.12s ease;
 }
 .row:hover {
   text-decoration: none;
-  background: var(--surface-hover);
-  transform: translateX(2px);
+  opacity: 0.72;
 }
 .row:hover .row-title { text-decoration: underline; }
 .row-title {
@@ -587,15 +585,56 @@ function layout(input: {
   <a class="brand" href="/">Radar</a>
   <span class="version">v${escapeHtml(input.version)}</span>
   <nav class="nav">
-    ${nav('leads', 'Лиды', '/')}
+    ${nav('leads', 'Заказы', '/')}
     ${nav('sources', 'Источники', '/sources')}
-    ${nav('extension', 'Расширение', '/extension')}
   </nav>
   <div class="actions">${input.actions ?? ''}</div>
 </header>
 ${input.body}
 <footer>Данные не покидают ваш сервер · <a href="/health">health</a></footer>
 </main>
+<dialog id="add-source-dialog" style="border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);padding:24px;max-width:480px;width:90vw;box-shadow:0 16px 40px rgba(0,0,0,0.18)">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+    <h3 style="margin:0;font-size:16px;font-weight:600">Добавить источник</h3>
+    <button type="button" onclick="document.getElementById('add-source-dialog').close()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1">&times;</button>
+  </div>
+  <form method="post" action="/sources" style="display:grid;gap:14px">
+    <div style="display:grid;gap:5px">
+      <label style="font-size:12px;color:var(--muted)">Тип источника</label>
+      <select name="kind" id="dlg-kind" style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit" onchange="
+        const val = this.value;
+        document.getElementById('dlg-url-grp').style.display = val === 'rss' ? 'grid' : 'none';
+        document.getElementById('dlg-kwork-grp').style.display = val === 'kwork' ? 'grid' : 'none';
+        document.getElementById('dlg-tg-grp').style.display = val === 'telegram' ? 'grid' : 'none';
+      ">
+        <option value="rss">RSS / Atom фид</option>
+        <option value="kwork">Kwork категория</option>
+        <option value="telegram">Telegram канал</option>
+        <option value="webhook">Входящий Webhook</option>
+      </select>
+    </div>
+    <div style="display:grid;gap:5px">
+      <label style="font-size:12px;color:var(--muted)">Название</label>
+      <input name="title" required placeholder="Например: FL.ru — Разработка" style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit">
+    </div>
+    <div id="dlg-url-grp" style="display:grid;gap:5px">
+      <label style="font-size:12px;color:var(--muted)">URL фида</label>
+      <input name="url" placeholder="https://www.fl.ru/rss/all.xml" style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit">
+    </div>
+    <div id="dlg-kwork-grp" style="display:none;gap:5px">
+      <label style="font-size:12px;color:var(--muted)">ID категории Kwork</label>
+      <input name="categoryId" placeholder="11" style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit">
+    </div>
+    <div id="dlg-tg-grp" style="display:none;gap:5px">
+      <label style="font-size:12px;color:var(--muted)">Канал Telegram</label>
+      <input name="channel" placeholder="freelance_orders" style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit">
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
+      <button class="btn ghost" type="button" onclick="document.getElementById('add-source-dialog').close()">Отмена</button>
+      <button class="btn" type="submit">Создать</button>
+    </div>
+  </form>
+</dialog>
 ${input.script ?? ''}
 </body>
 </html>`;
@@ -815,18 +854,11 @@ export function renderLeadsPage(data: LeadsPageData): string {
         </div>`;
 
   const body = `
-<div class="page-head">
-  <div>
-    <h1>Лиды</h1>
-    <p class="muted small">${stats.leads} ${plural(stats.leads, ['лид', 'лида', 'лидов'])} · ${stats.last24h} за 24 часа · ${stats.enabledSources}/${stats.sources} источников</p>
-  </div>
-</div>
-
-<div class="filters">
+<div class="filters" style="margin-top:12px">
   <div class="chips">${chips}</div>
   <form class="search" method="get" action="/">
     ${status ? `<input type="hidden" name="status" value="${escapeHtml(status)}">` : ''}
-    <input name="q" value="${escapeHtml(query)}" placeholder="Поиск по лидам" aria-label="Поиск по лидам">
+    <input name="q" value="${escapeHtml(query)}" placeholder="Поиск по задачам, навыкам и городам" aria-label="Поиск по лидам">
     <button class="btn ghost" type="submit">Найти</button>
   </form>
 </div>
@@ -834,12 +866,12 @@ export function renderLeadsPage(data: LeadsPageData): string {
 <div class="list">${rows || empty}</div>`;
 
   return layout({
-    title: 'Лиды',
+    title: query ? `${query} — Поиск` : 'Заказы',
     version,
     active: 'leads',
     body,
     actions:
-      '<a class="btn ghost" href="/sources/new">Добавить источник</a><button class="btn" data-poll="/api/poll">Опросить все</button>',
+      '<button class="btn ghost" type="button" onclick="document.getElementById(\'add-source-dialog\')?.showModal()">Добавить источник</button><button class="btn" data-poll="/api/poll">Опросить все</button>',
     script: POLL_SCRIPT,
   });
 }
@@ -867,7 +899,7 @@ document.getElementById('copy-lead')?.addEventListener('click', async (event) =>
   const aiBox = (aiSummary || aiCategory || aiSkills)
     ? `<div class="ai-box">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
-          <span style="font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">✨ AI-анализ заказа</span>
+          <span style="font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">AI Анализ заказа</span>
           ${aiConfidence ? `<span class="muted small">${Math.round(Number(aiConfidence) * 100)}% совпадение</span>` : ''}
         </div>
         ${aiSummary ? `<p style="font-weight:600;margin:0 0 10px">${escapeHtml(aiSummary)}</p>` : ''}

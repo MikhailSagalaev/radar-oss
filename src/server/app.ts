@@ -117,7 +117,7 @@ function parseList(value: string): string[] {
 }
 
 function sameOrigin(c: Context): boolean {
-  const origin = c.req.header('origin');
+  const origin = c.req.header('origin') ?? c.req.header('referer');
   if (!origin) return true;
   const host = c.req.header('host');
   if (!host) return false;
@@ -194,24 +194,46 @@ function buildSourceConfig(
   if (exclude.length) config.excludeKeywords = exclude;
 
   const minBudget = asNumber(formString(body, 'minBudget'));
-  if (minBudget !== undefined) config.minBudget = minBudget;
+  if (minBudget !== undefined) {
+    if (minBudget < 0 || isNaN(minBudget)) return { config, error: 'Минимальный бюджет должен быть положительным числом.' };
+    config.minBudget = minBudget;
+  }
   const limit = asNumber(formString(body, 'limit'));
-  if (limit !== undefined) config.limit = limit;
+  if (limit !== undefined) {
+    if (limit <= 0 || isNaN(limit) || limit > 500) return { config, error: 'Лимит должен быть от 1 до 500.' };
+    config.limit = limit;
+  }
 
   if (kind === 'rss') {
     const url = formString(body, 'url');
     if (!url) return { config, error: 'Для RSS нужен URL фида.' };
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return { config, error: 'Разрешены только http:// и https:// ссылки.' };
+      }
+      if (['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsed.hostname)) {
+        return { config, error: 'Локальные адреса запрещены.' };
+      }
+    } catch {
+      return { config, error: 'Некорректный URL фида.' };
+    }
     config.url = url;
   }
 
   if (kind === 'telegram') {
     const channel = formString(body, 'channel').replace(/^@/, '');
-    if (!channel) return { config, error: 'Для Telegram нужен публичный канал.' };
+    if (!channel || !/^[a-zA-Z0-9_]{4,32}$/.test(channel)) {
+      return { config, error: 'Укажите корректный публичный канал Telegram (4-32 символов a-z, 0-9, _).' };
+    }
     config.channel = channel;
   }
 
   if (kind === 'kwork') {
     const categoryId = formString(body, 'categoryId');
+    if (categoryId && !/^\d{1,8}$/.test(categoryId)) {
+      return { config, error: 'ID категории Kwork должен быть числовым.' };
+    }
     if (categoryId) config.categoryId = categoryId;
   }
 
@@ -280,6 +302,14 @@ function toRawLead(body: Record<string, unknown>, sourceId: string): RawLead | n
 
 export function createApp(runtime: Runtime): Hono {
   const app = new Hono();
+
+  // Security Headers: Clickjacking, MIME-sniffing, XSS
+  app.use('*', async (c, next) => {
+    c.header('X-Frame-Options', 'DENY');
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    await next();
+  });
 
   app.onError((error, c) => {
     runtime.logger.error('http handler failed', {
