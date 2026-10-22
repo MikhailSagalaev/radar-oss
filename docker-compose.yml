@@ -1,15 +1,16 @@
 services:
   postgres:
     image: pgvector/pgvector:pg17
+    container_name: radar_postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: radar
       POSTGRES_USER: radar
-      POSTGRES_PASSWORD: radar_secure_password
+      POSTGRES_PASSWORD: radar_secure_db_password_2026
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - radar_pgdata:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U radar -d radar"]
       interval: 5s
@@ -18,14 +19,15 @@ services:
 
   radar:
     build: .
+    container_name: radar_app
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "8787:8787"
+      - "127.0.0.1:8791:8787"
     environment:
-      - DATABASE_URL=postgres://radar:radar_secure_password@postgres:5432/radar
+      - DATABASE_URL=postgres://radar:radar_secure_db_password_2026@postgres:5432/radar
       - PORT=8787
       - NODE_ENV=production
     env_file:
@@ -34,4 +36,4 @@ services:
       - ./data:/app/data
 
 volumes:
-  pgdata:
+  radar_pgdata:
