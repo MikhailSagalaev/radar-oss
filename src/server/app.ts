@@ -3,17 +3,19 @@ import type { Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { escapeHtml } from '../core/text.ts';
-import type { LeadStatus, RawLead, SourceConfig, SourceKind } from '../core/types.ts';
+import type { LeadStatus, RawLead, SourceConfig, SourceKind, SourceRecord } from '../core/types.ts';
 import { pollAll, pollSource } from '../pipeline/poll.ts';
 import { ingestRawLead, type IngestDeps } from '../pipeline/ingest.ts';
 import type { Runtime } from '../runtime.ts';
 import { VERSION } from '../version.ts';
 import {
-  renderDashboard,
+  renderLeadPage,
+  renderLeadsPage,
   renderNewSourcePage,
   renderNotFound,
   renderSourceCreatedPage,
   renderSourcePage,
+  renderSourcesPage,
   type SourceFormValues,
 } from './ui.ts';
 
@@ -141,9 +143,39 @@ function formValues(body: Record<string, unknown>): SourceFormValues {
   };
 }
 
+function formValuesFromSource(source: SourceRecord): SourceFormValues {
+  const config = source.config;
+  const text = (value: unknown): string => {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number') return String(value);
+    if (Array.isArray(value)) return value.join(', ');
+    return '';
+  };
+  return {
+    kind: source.kind,
+    title: source.title,
+    url: text(config.url),
+    channel: text(config.channel),
+    categoryId: text(config.categoryId),
+    city: text(config.city),
+    includeKeywords: text(config.includeKeywords),
+    excludeKeywords: text(config.excludeKeywords),
+    minBudget: text(config.minBudget),
+    limit: text(config.limit),
+    host: text(config.host),
+    port: text(config.port),
+    user: text(config.user),
+    passwordEnv: text(config.passwordEnv),
+    mailbox: text(config.mailbox),
+    sinceDays: text(config.sinceDays),
+    subjectIncludes: text(config.subjectIncludes),
+  };
+}
+
 function buildSourceConfig(
   kind: SourceKind,
   body: Record<string, unknown>,
+  existing?: SourceRecord,
 ): { config: SourceConfig; error?: string } {
   const config: SourceConfig = {};
   const city = formString(body, 'city');
@@ -177,7 +209,9 @@ function buildSourceConfig(
   }
 
   if (kind === 'webhook') {
-    config.token = randomBytes(16).toString('hex');
+    const existingToken =
+      typeof existing?.config.token === 'string' ? existing.config.token : undefined;
+    config.token = existingToken ?? randomBytes(16).toString('hex');
   }
 
   if (kind === 'imap') {
@@ -273,12 +307,33 @@ export function createApp(runtime: Runtime): Hono {
 
   app.get('/', (c) => {
     if (!canRead(c, runtime.env)) return c.redirect('/login');
+    const rawStatus = c.req.query('status') ?? '';
+    const status = ['new', 'delivered', 'rejected', 'failed'].includes(rawStatus)
+      ? (rawStatus as LeadStatus)
+      : '';
+    const query = (c.req.query('q') ?? '').trim();
+
     return c.html(
-      renderDashboard({
+      renderLeadsPage({
         stats: runtime.store.getStats(),
         health: runtime.store.getSourceHealth(),
-        leads: runtime.store.listLeads({ limit: 50 }),
-        runs: runtime.store.listRuns(8),
+        leads: runtime.store.listLeads({
+          limit: 50,
+          status: status || undefined,
+          query: query || undefined,
+        }),
+        query,
+        status,
+        version: VERSION,
+      }),
+    );
+  });
+
+  app.get('/sources', (c) => {
+    if (!canRead(c, runtime.env)) return c.redirect('/login');
+    return c.html(
+      renderSourcesPage({
+        health: runtime.store.getSourceHealth(),
         version: VERSION,
       }),
     );
@@ -291,6 +346,26 @@ export function createApp(runtime: Runtime): Hono {
         version: VERSION,
         kinds: runtime.sources.list().map((adapter) => adapter.kind),
         values: formValues({}),
+        mode: 'create',
+        action: '/sources',
+        submitLabel: 'Создать источник',
+      }),
+    );
+  });
+
+  app.get('/sources/:id/edit', (c) => {
+    if (!isAdmin(c, runtime.env)) return c.redirect('/login');
+    const source = runtime.store.getSource(c.req.param('id'));
+    if (!source) return c.html(renderNotFound(VERSION), 404);
+    return c.html(
+      renderNewSourcePage({
+        version: VERSION,
+        kinds: runtime.sources.list().map((adapter) => adapter.kind),
+        values: formValuesFromSource(source),
+        mode: 'edit',
+        action: `/sources/${source.id}`,
+        submitLabel: 'Сохранить',
+        sourceId: source.id,
       }),
     );
   });
@@ -310,6 +385,9 @@ export function createApp(runtime: Runtime): Hono {
           kinds: runtime.sources.list().map((adapter) => adapter.kind),
           values,
           error,
+          mode: 'create',
+          action: '/sources',
+          submitLabel: 'Создать источник',
         }),
         400,
       );
@@ -336,7 +414,43 @@ export function createApp(runtime: Runtime): Hono {
       );
     }
 
-    return c.redirect(`/sources/${created.id}`);
+    return c.redirect(`/sources/${created.id}?created=1`);
+  });
+
+  app.post('/sources/:id', async (c) => {
+    if (!isAdmin(c, runtime.env)) return c.redirect('/login');
+    if (!sameOrigin(c)) return c.text('Forbidden', 403);
+    const source = runtime.store.getSource(c.req.param('id'));
+    if (!source) return c.html(renderNotFound(VERSION), 404);
+
+    const body = (await c.req.parseBody()) as Record<string, unknown>;
+    const values = formValues(body);
+    values.kind = source.kind;
+
+    const fail = (error: string): Response =>
+      c.html(
+        renderNewSourcePage({
+          version: VERSION,
+          kinds: runtime.sources.list().map((adapter) => adapter.kind),
+          values,
+          error,
+          mode: 'edit',
+          action: `/sources/${source.id}`,
+          submitLabel: 'Сохранить',
+          sourceId: source.id,
+        }),
+        400,
+      );
+
+    if (!values.title) return fail('Название источника обязательно.');
+    const built = buildSourceConfig(source.kind, body, source);
+    if (built.error) return fail(built.error);
+
+    runtime.store.updateSource(source.id, {
+      title: values.title,
+      config: built.config,
+    });
+    return c.redirect(`/sources/${source.id}?updated=1`);
   });
 
   app.get('/sources/:id', (c) => {
@@ -365,6 +479,25 @@ export function createApp(runtime: Runtime): Hono {
         leads: runtime.store.listLeads({ sourceId: source.id, limit: 20 }),
         runs: runtime.store.listRuns(20, source.id),
         version: VERSION,
+        notice:
+          c.req.query('created') === '1'
+            ? 'Источник создан.'
+            : c.req.query('updated') === '1'
+              ? 'Изменения сохранены.'
+              : undefined,
+      }),
+    );
+  });
+
+  app.get('/leads/:id', (c) => {
+    if (!canRead(c, runtime.env)) return c.redirect('/login');
+    const lead = runtime.store.getLead(c.req.param('id'));
+    if (!lead) return c.html(renderNotFound(VERSION), 404);
+    return c.html(
+      renderLeadPage({
+        lead,
+        source: runtime.store.getSource(lead.sourceId) ?? undefined,
+        version: VERSION,
       }),
     );
   });
@@ -384,7 +517,7 @@ export function createApp(runtime: Runtime): Hono {
     const source = runtime.store.getSource(c.req.param('id'));
     if (!source) return c.html(renderNotFound(VERSION), 404);
     runtime.store.deleteSource(source.id);
-    return c.redirect('/');
+    return c.redirect('/sources');
   });
 
   app.get('/api/sources/health', (c) => {
@@ -460,7 +593,8 @@ export function createApp(runtime: Runtime): Hono {
     const limit = Math.max(1, Math.min(Number(c.req.query('limit') ?? 50) || 50, 500));
     const status = c.req.query('status') as LeadStatus | undefined;
     const sourceId = c.req.query('source') || undefined;
-    return c.json(runtime.store.listLeads({ limit, status, sourceId }));
+    const query = c.req.query('q')?.trim() || undefined;
+    return c.json(runtime.store.listLeads({ limit, status, sourceId, query }));
   });
 
   app.get('/api/runs', (c) => {

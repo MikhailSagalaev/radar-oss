@@ -26,7 +26,7 @@ const envSchema = z.object({
   RADAR_ADMIN_TOKEN: optionalString,
   RADAR_USER_AGENT: z
     .string()
-    .default('RadarBot/0.1 (+https://github.com/your-org/radar)'),
+    .default('RadarBot/0.3.0 (+https://github.com/MikhailSagalaev/radar-oss)'),
   RADAR_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   RADAR_POLL_INTERVAL_SEC: z.coerce.number().int().positive().default(300),
   RADAR_LLM_ENABLED: booleanFromEnv(false),

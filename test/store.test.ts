@@ -108,6 +108,26 @@ describe('sqlite store', () => {
     store.close();
   });
 
+  it('filters leads by a normalized query', () => {
+    const store = openStore(':memory:');
+    const source = store.createSource({ kind: 'rss', title: 'Feed' });
+    store.insertLead(makeLead({ sourceId: source.id, id: 'lead-1', title: 'Нужен сантехник' }));
+    store.insertLead(
+      makeLead({
+        sourceId: source.id,
+        id: 'lead-2',
+        externalId: 'external-2',
+        fingerprint: 'fingerprint-2',
+        titleKey: 'нужен электрик',
+        title: 'Нужен электрик',
+      }),
+    );
+
+    expect(store.listLeads({ query: 'САНТЕХНИК' })).toHaveLength(1);
+    expect(store.listLeads({ query: 'электрик' })[0]?.title).toBe('Нужен электрик');
+    store.close();
+  });
+
   it('aggregates source health', () => {
     const store = openStore(':memory:');
     const source = store.createSource({ kind: 'rss', title: 'Health feed' });

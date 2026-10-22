@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Product UI: separate Leads and Sources pages, a lead detail page, search and status filters.
+- Source editing: title, filters and connection settings can be changed without recreating the source.
+- Rejected leads are sorted below actionable ones.
+- Cleaner first-run and empty states; monochrome layout with a consistent top navigation.
+- Lead rows link to an internal detail view with full text, score and delivery status.
+- Updated screenshots and README.
+
 ## 0.2.3
 
 - The dashboard, source page, login and extension popup are fully monochrome.

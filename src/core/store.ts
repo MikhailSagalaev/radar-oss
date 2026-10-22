@@ -27,6 +27,7 @@ export interface ListLeadsOptions {
   limit?: number;
   status?: LeadStatus;
   sourceId?: string;
+  query?: string;
 }
 
 export interface Store {
@@ -37,6 +38,7 @@ export interface Store {
   deleteSource(id: string): boolean;
 
   findLeadByFingerprint(fingerprint: string): Lead | null;
+  getLead(id: string): Lead | null;
   findRecentByTitleKey(titleKey: string, city: string | undefined, sinceIso: string): Lead | null;
   insertLead(lead: Lead): boolean;
   updateLeadStatus(id: string, status: LeadStatus, deliveredAt?: string): void;

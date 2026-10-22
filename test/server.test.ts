@@ -167,7 +167,7 @@ describe('http server', () => {
     expect(sources).toHaveLength(1);
     expect(sources[0]?.title).toBe('UI feed');
     expect(sources[0]?.config.includeKeywords).toEqual(['сантехник', 'электрик']);
-    expect(response.headers.get('location')).toBe(`/sources/${sources[0]?.id}`);
+    expect(response.headers.get('location')).toBe(`/sources/${sources[0]?.id}?created=1`);
     runtime.store.close();
   });
 
@@ -222,6 +222,75 @@ describe('http server', () => {
 
     expect(response.status).toBe(403);
     expect(runtime.store.listSources()).toHaveLength(0);
+    runtime.store.close();
+  });
+
+  it('serves the leads and sources pages', async () => {
+    const runtime = makeOpenRuntime();
+    const app = createApp(runtime);
+
+    const leads = await app.request('/');
+    expect(leads.status).toBe(200);
+    expect(await leads.text()).toContain('Лиды');
+
+    const sources = await app.request('/sources');
+    expect(sources.status).toBe(200);
+    expect(await sources.text()).toContain('Источники');
+    runtime.store.close();
+  });
+
+  it('serves a lead detail page', async () => {
+    const runtime = makeOpenRuntime();
+    const source = runtime.store.createSource({
+      kind: 'webhook',
+      title: 'Inbound',
+      config: { token: 'hook-secret' },
+    });
+    const app = createApp(runtime);
+
+    const ingest = await app.request(`/api/ingest/${source.id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-radar-token': 'hook-secret' },
+      body: JSON.stringify({
+        title: 'Нужен сантехник',
+        text: 'Прорвало трубу, Ставрополь, бюджет 5000 ₽',
+      }),
+    });
+    const result = (await ingest.json()) as {
+      outcomes: Array<{ lead?: { id: string } }>;
+    };
+    const leadId = result.outcomes[0]?.lead?.id;
+    expect(leadId).toBeTruthy();
+
+    const page = await app.request(`/leads/${leadId}`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('Прорвало трубу');
+    runtime.store.close();
+  });
+
+  it('edits a source and keeps a webhook token', async () => {
+    const runtime = makeOpenRuntime();
+    const source = runtime.store.createSource({
+      kind: 'webhook',
+      title: 'Old title',
+      config: { token: 'keep-me' },
+    });
+    const app = createApp(runtime);
+
+    const form = await app.request(`/sources/${source.id}/edit`);
+    expect(form.status).toBe(200);
+    expect(await form.text()).toContain('Редактировать источник');
+
+    const response = await app.request(`/sources/${source.id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: formBody({ title: 'New title', city: 'Ставрополь' }),
+    });
+    expect(response.status).toBe(302);
+    const updated = runtime.store.getSource(source.id);
+    expect(updated?.title).toBe('New title');
+    expect(updated?.config.token).toBe('keep-me');
+    expect(updated?.config.city).toBe('Ставрополь');
     runtime.store.close();
   });
 

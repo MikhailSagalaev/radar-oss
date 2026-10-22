@@ -6,9 +6,9 @@ Self-hosted lead pipeline for public order sources.
 
 Radar watches the sources you configure, normalizes new orders, removes duplicates, filters spam, scores relevance and delivers leads to Telegram, a webhook or the console. It is a small, inspectable alternative to paid "lead radar" channels.
 
-**Status: early v0.2.3.** It is not a hosted service and it does not promise to scrape every marketplace. It gives you a pipeline, a few working adapters and a clear contract for adding more.
+**Status: early v0.3.0.** It is not a hosted service and it does not promise to scrape every marketplace. It gives you a pipeline, a few working adapters and a clear contract for adding more.
 
-![Radar dashboard](docs/screenshots/dashboard.png)
+![Radar leads](docs/screenshots/dashboard.png)
 
 ## Why
 
@@ -36,7 +36,8 @@ Small teams and freelancers often pay for Telegram channels that resell the same
 - Sinks: console, Telegram Bot API, generic webhook.
 - Per-source health: 24-hour counters, success rate, last run and a detail page.
 - CLI, HTTP API and a minimal server-rendered dashboard.
-- Add, enable, disable and delete sources from the dashboard; webhook tokens are shown once.
+- Lead inbox: search, status filters, an internal lead page with full text, score and source.
+- Add, edit, enable, disable and delete sources from the dashboard; webhook tokens are shown once.
 - A Manifest V3 browser extension for sending the current page to a webhook source.
 - Tests with fixtures for every adapter.
 
@@ -131,7 +132,9 @@ See [docs/EXTENSION.md](docs/EXTENSION.md) for the full walkthrough.
 
 ## Health
 
-The dashboard shows one row per source: status, last run and 24-hour counters. Click a source for `/sources/:id` with the configuration, recent leads, runs and success rate. The same data is available at `GET /api/sources/health`.
+The dashboard shows one row per source on `/sources`: status, last run and 24-hour counters. Click a source for `/sources/:id` with the configuration, recent leads, runs and success rate. The same data is available at `GET /api/sources/health`.
+
+![Sources](docs/screenshots/sources.png)
 
 ![Source health](docs/screenshots/source.png)
 
@@ -169,7 +172,9 @@ The dashboard shows one row per source: status, last run and 24-hour counters. C
 | `GET` | `/api/runs` | recent runs |
 | `POST` | `/api/ingest/:sourceId` | accept a lead from a webhook source |
 
-The dashboard is at `/`; a source detail page with health, config, leads and runs is at `/sources/:id`. New sources are added at `/sources/new` — the same form works for RSS, Telegram, Kwork, IMAP and webhook.
+The UI has two pages: `/` for leads and `/sources` for sources. A lead opens at `/leads/:id` with the full text and delivery details. New sources are added at `/sources/new`; an existing one is edited at `/sources/:id/edit`.
+
+![Lead](docs/screenshots/lead.png)
 
 ![New source](docs/screenshots/new-source.png)
 
@@ -181,7 +186,7 @@ Authentication: `Authorization: Bearer <RADAR_ADMIN_TOKEN>` or `x-radar-token`. 
 |---|---|---|
 | `RADAR_DB_PATH` | `./data/radar.db` | SQLite file |
 | `RADAR_ADMIN_TOKEN` | unset | protects the API and dashboard |
-| `RADAR_USER_AGENT` | `RadarBot/0.1 ...` | sent to sources |
+| `RADAR_USER_AGENT` | `RadarBot/0.3.0 ...` | sent to sources |
 | `RADAR_HTTP_TIMEOUT_MS` | `15000` | per-request timeout |
 | `RADAR_POLL_INTERVAL_SEC` | `300` | scheduler interval |
 | `RADAR_PUBLIC_READ` | `false` | allow read-only API without a token |

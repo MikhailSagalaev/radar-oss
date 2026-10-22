@@ -287,6 +287,13 @@ export class SqliteStore implements Store {
     return row ? rowToLead(row) : null;
   }
 
+  getLead(id: string): Lead | null {
+    const row = this.db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as
+      | LeadRow
+      | undefined;
+    return row ? rowToLead(row) : null;
+  }
+
   findRecentByTitleKey(
     titleKey: string,
     city: string | undefined,
@@ -361,10 +368,32 @@ export class SqliteStore implements Store {
       clauses.push('source_id = ?');
       params.push(options.sourceId);
     }
+    if (options.query?.trim()) {
+      const needle = options.query
+        .toLocaleLowerCase('ru-RU')
+        .replace(/\u0451/g, '\u0435')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (needle) {
+        clauses.push('title_key LIKE ?');
+        params.push(`%${needle}%`);
+      }
+    }
 
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.db
-      .prepare(`SELECT * FROM leads ${where} ORDER BY created_at DESC LIMIT ?`)
+      .prepare(
+        `SELECT * FROM leads ${where}
+         ORDER BY CASE status
+           WHEN 'new' THEN 0
+           WHEN 'delivered' THEN 1
+           WHEN 'failed' THEN 2
+           WHEN 'rejected' THEN 3
+           ELSE 4
+         END, created_at DESC
+         LIMIT ?`,
+      )
       .all(...params, limit) as LeadRow[];
     return rows.map(rowToLead);
   }
