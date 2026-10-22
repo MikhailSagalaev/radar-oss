@@ -242,8 +242,8 @@ export class PostgresStore implements Store {
 
   async findRecentByTitleKey(titleKey: string, city: string | undefined, sinceIso: string): Promise<Lead | null> {
     const query = city
-      ? `SELECT * FROM leads WHERE title_key = $1 AND city = $2 AND created_at >= $3 ORDER BY created_at DESC LIMIT 1`
-      : `SELECT * FROM leads WHERE title_key = $1 AND created_at >= $3 ORDER BY created_at DESC LIMIT 1`;
+      ? `SELECT * FROM leads WHERE title_key = $1 AND city = $2 AND created_at >= $3::timestamptz ORDER BY created_at DESC LIMIT 1`
+      : `SELECT * FROM leads WHERE title_key = $1 AND created_at >= $2::timestamptz ORDER BY created_at DESC LIMIT 1`;
     const params = city ? [titleKey, city, sinceIso] : [titleKey, sinceIso];
     const res = await this.pool.query(query, params);
     return res.rows[0] ? this.rowToLead(res.rows[0]) : null;
