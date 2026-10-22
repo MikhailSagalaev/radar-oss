@@ -1,12 +1,23 @@
 {
   "manifest_version": 3,
-  "name": "Radar — отправить страницу",
-  "version": "0.3.0",
-  "description": "Отправляет текущую страницу или выделенный текст в ваш self-hosted Radar.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "name": "Radar — отправка заказов",
+  "version": "0.4.0",
+  "description": "Отправляет заказы и страницы в Radar в один клик или через контекстное меню.",
+  "permissions": ["activeTab", "scripting", "storage", "contextMenus"],
   "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_title": "Отправить в Radar",
     "default_popup": "popup.html"
+  },
+  "commands": {
+    "send-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+R"
+      },
+      "description": "Отправить текущую страницу в Radar"
+    }
   }
 }

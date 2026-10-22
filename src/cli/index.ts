@@ -9,6 +9,7 @@ import { PollRunner } from '../pipeline/runner.ts';
 import { createRuntime, type Runtime } from '../runtime.ts';
 import { createApp } from '../server/app.ts';
 import { startServer } from '../server/index.ts';
+import { SOURCE_PRESETS } from '../sources/presets.ts';
 import { VERSION } from '../version.ts';
 
 const SOURCE_KINDS: SourceKind[] = ['rss', 'telegram', 'kwork', 'webhook', 'imap'];
@@ -169,6 +170,7 @@ function buildProgram(): Command {
       await withRuntime((runtime) => {
         console.log(`База данных: ${resolve(runtime.env.RADAR_DB_PATH)}`);
         console.log('Дальше:');
+        console.log('  radar source presets --add   # загрузить популярные биржи (FL.ru, Хабр, Kwork, Telegram)');
         console.log('  radar source add --kind rss --title "Feed" --url https://example.com/rss');
         console.log('  radar poll');
         console.log('  radar serve');
@@ -320,6 +322,42 @@ function buildProgram(): Command {
       await withRuntime((runtime) => {
         if (!runtime.store.deleteSource(id)) fail(`source ${id} not found`);
         console.log(`Источник ${id} удалён`);
+      });
+    });
+
+  source
+    .command('presets')
+    .description('List or add pre-configured freelance and order sources')
+    .option('--add', 'Add all preset sources into the database')
+    .action(async (options: { add?: boolean }) => {
+      await withRuntime((runtime) => {
+        if (!options.add) {
+          console.log('Доступные предустановленные источники:');
+          const rows = SOURCE_PRESETS.map((p) => [p.id, p.kind, p.title, p.description]);
+          console.log(table(['ID', 'Тип', 'Название', 'Описание'], rows));
+          console.log('\nЧтобы добавить их в базу, выполните: radar source presets --add');
+          return;
+        }
+        const existing = runtime.store.listSources();
+        let added = 0;
+        for (const preset of SOURCE_PRESETS) {
+          const already = existing.some(
+            (s) =>
+              s.title === preset.title ||
+              (preset.config.url && s.config.url === preset.config.url) ||
+              (preset.config.channel && s.config.channel === preset.config.channel),
+          );
+          if (already) continue;
+          runtime.store.createSource({
+            kind: preset.kind,
+            title: preset.title,
+            config: preset.config,
+            enabled: true,
+          });
+          added++;
+          console.log(`Добавлен: ${preset.title} (${preset.kind})`);
+        }
+        console.log(`\nГотово: добавлено источников: ${added}.`);
       });
     });
 

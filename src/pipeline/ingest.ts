@@ -75,6 +75,14 @@ export async function ingestRawLead(
         } else if (classification.isLead) {
           reasons.push(`llm:lead:${classification.confidence.toFixed(2)}`);
           if (!city && classification.city) city = classification.city;
+          if (prepared.budget === undefined && classification.estimatedBudget) {
+            prepared.budget = classification.estimatedBudget;
+            reasons.push(`llm:budget:${classification.estimatedBudget}`);
+          }
+          if (classification.category) reasons.push(`llm:category:${classification.category}`);
+          if (classification.summary) reasons.push(`llm:summary:${classification.summary}`);
+          if (classification.skills?.length) reasons.push(`llm:skills:${classification.skills.join(', ')}`);
+          if (classification.urgency) reasons.push(`llm:urgency:${classification.urgency}`);
           score = Math.max(score, Math.round(classification.confidence * 100));
         }
       }

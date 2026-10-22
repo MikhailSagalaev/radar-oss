@@ -9,24 +9,37 @@
 <body>
   <header>
     <strong>Radar</strong>
-    <span>отправить страницу</span>
+    <span>добавление заказов</span>
   </header>
 
-  <form id="config">
-    <label>Адрес Radar
-      <input id="base" type="url" placeholder="http://127.0.0.1:8787" required>
-    </label>
-    <label>ID источника
-      <input id="sourceId" type="text" placeholder="webhook_..." required>
-    </label>
-    <label>Токен источника
-      <input id="token" type="password" placeholder="token" required>
-    </label>
-    <button type="submit" class="ghost">Сохранить</button>
-  </form>
+  <div id="preview-box" class="preview-box">
+    <div id="page-title" class="page-title">Загрузка...</div>
+    <div id="page-url" class="page-url"></div>
+  </div>
 
-  <button id="send" type="button">Отправить страницу</button>
+  <div class="actions-box">
+    <button id="send" type="button">Отправить в Radar</button>
+  </div>
   <p id="status" class="status"></p>
+
+  <details id="settings-details">
+    <summary>⚙️ Настройки сервера</summary>
+    <form id="config">
+      <label>Ваш никнейм (@telegram)
+        <input id="contributor" type="text" placeholder="@username">
+      </label>
+      <label>Адрес сервера Radar
+        <input id="base" type="url" placeholder="http://127.0.0.1:8787" required>
+      </label>
+      <label>ID источника
+        <input id="sourceId" type="text" placeholder="ID источника" required>
+      </label>
+      <label>Токен источника
+        <input id="token" type="password" placeholder="Секретный токен" required>
+      </label>
+      <button type="submit" class="ghost">Сохранить</button>
+    </form>
+  </details>
 
   <script src="popup.js"></script>
 </body>

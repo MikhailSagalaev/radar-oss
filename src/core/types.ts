@@ -114,6 +114,9 @@ export interface Classification {
   category?: string;
   city?: string;
   summary?: string;
+  skills?: string[];
+  estimatedBudget?: number;
+  urgency?: 'low' | 'medium' | 'high';
 }
 
 export interface ClassifierInput {

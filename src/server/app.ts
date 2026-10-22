@@ -7,8 +7,10 @@ import type { LeadStatus, RawLead, SourceConfig, SourceKind, SourceRecord } from
 import { pollAll, pollSource } from '../pipeline/poll.ts';
 import { ingestRawLead, type IngestDeps } from '../pipeline/ingest.ts';
 import type { Runtime } from '../runtime.ts';
+import { SOURCE_PRESETS } from '../sources/presets.ts';
 import { VERSION } from '../version.ts';
 import {
+  renderExtensionPage,
   renderLeadPage,
   renderLeadsPage,
   renderNewSourcePage,
@@ -50,13 +52,18 @@ function canRead(c: Context, env: Runtime['env']): boolean {
 function loginPage(error?: string): string {
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Radar — вход</title>
-<style>body{font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;background:#fafafa;color:#171717;display:grid;place-items:center;min-height:100vh;margin:0}
-form{background:#fff;border:1px solid #e5e5e5;border-radius:6px;padding:24px;width:min(360px,90vw)}
-h1{font-size:20px;margin:0 0 6px}p{color:#737373;font-size:13px;margin:0 0 16px}
-input{width:100%;box-sizing:border-box;padding:9px;border:1px solid #e5e5e5;border-radius:5px;font:inherit;margin-bottom:12px}
-input:focus{outline:1px solid #171717;border-color:#171717}
-button{width:100%;padding:9px;border:0;border-radius:5px;background:#171717;color:#fff;font:inherit;cursor:pointer}
-.error{color:#171717;font-size:13px;font-weight:600;margin-bottom:10px}</style></head>
+<style>
+:root{--bg:#ffffff;--surface:#ffffff;--ink:#09090b;--muted:#71717a;--line:#e4e4e7;--btn:#09090b;--btn-text:#ffffff;--error:#ef4444}
+@media (prefers-color-scheme: dark){:root{--bg:#09090b;--surface:#121215;--ink:#f4f4f5;--muted:#a1a1aa;--line:#27272a;--btn:#f4f4f5;--btn-text:#09090b;--error:#f87171}}
+body{font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;letter-spacing:-0.01em;background:var(--bg);color:var(--ink);display:grid;place-items:center;min-height:100vh;margin:0}
+form{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:28px 24px;width:min(360px,90vw);box-shadow:0 4px 20px rgba(0,0,0,0.04)}
+h1{font-size:22px;letter-spacing:-0.03em;margin:0 0 6px;font-weight:600}p{color:var(--muted);font-size:13px;margin:0 0 20px}
+input{width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:13px;background:var(--bg);color:var(--ink);margin-bottom:14px;transition:all .15s ease}
+input:focus{outline:0;border-color:var(--ink);box-shadow:0 0 0 1px var(--ink),0 1px 2px rgba(0,0,0,.04)}
+button{width:100%;padding:9px;border:0;border-radius:6px;background:var(--btn);color:var(--btn-text);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .15s ease,transform .1s ease}
+button:hover{opacity:0.9}button:active{transform:scale(0.98)}
+.error{color:var(--error);font-size:12.5px;font-weight:500;margin-bottom:12px;background:rgba(239,68,68,0.08);padding:6px 10px;border-radius:5px}
+</style></head>
 <body><form method="post" action="/login">
 <h1>Radar</h1><p>Введите админ-токен из RADAR_ADMIN_TOKEN</p>
 ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
@@ -329,6 +336,19 @@ export function createApp(runtime: Runtime): Hono {
     );
   });
 
+  app.get('/extension', (c) => {
+    if (!canRead(c, runtime.env)) return c.redirect('/login');
+    const webhookSources = runtime.store
+      .listSources()
+      .filter((s) => s.kind === 'webhook' && s.enabled);
+    return c.html(
+      renderExtensionPage({
+        version: VERSION,
+        webhookSources,
+      }),
+    );
+  });
+
   app.get('/sources', (c) => {
     if (!canRead(c, runtime.env)) return c.redirect('/login');
     return c.html(
@@ -337,6 +357,28 @@ export function createApp(runtime: Runtime): Hono {
         version: VERSION,
       }),
     );
+  });
+
+  app.post('/sources/presets', async (c) => {
+    if (!isAdmin(c, runtime.env)) return c.redirect('/login');
+    if (!sameOrigin(c)) return c.text('Forbidden', 403);
+    const existing = runtime.store.listSources();
+    for (const preset of SOURCE_PRESETS) {
+      const already = existing.some(
+        (s) =>
+          s.title === preset.title ||
+          (preset.config.url && s.config.url === preset.config.url) ||
+          (preset.config.channel && s.config.channel === preset.config.channel),
+      );
+      if (already) continue;
+      runtime.store.createSource({
+        kind: preset.kind,
+        title: preset.title,
+        config: preset.config,
+        enabled: true,
+      });
+    }
+    return c.redirect('/sources');
   });
 
   app.get('/sources/new', (c) => {
