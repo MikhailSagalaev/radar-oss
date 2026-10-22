@@ -384,7 +384,7 @@ export class PostgresStore implements Store {
         one("SELECT COUNT(*) AS count FROM leads WHERE status = 'new'"),
         one("SELECT COUNT(*) AS count FROM leads WHERE status = 'delivered'"),
         one("SELECT COUNT(*) AS count FROM leads WHERE status = 'rejected'"),
-        one('SELECT COUNT(*) AS count FROM leads WHERE created_at >= $1', [since]),
+        one('SELECT COUNT(*) AS count FROM leads WHERE created_at >= $1::timestamptz', [since]),
       ]);
 
     return {
@@ -412,7 +412,7 @@ export class PostgresStore implements Store {
               COALESCE(SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END), 0) AS errors,
               COUNT(*) AS runs
        FROM runs
-       WHERE started_at >= $1
+       WHERE started_at >= $1::timestamptz
        GROUP BY source_id`,
       [since]
     );
