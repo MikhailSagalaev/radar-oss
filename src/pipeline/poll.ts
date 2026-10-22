@@ -97,7 +97,7 @@ export async function pollSource(
       durationMs: Date.now() - startedMs,
     };
 
-    deps.store.recordRun({
+    await deps.store.recordRun({
       id: randomUUID(),
       sourceId: source.id,
       startedAt,
@@ -114,7 +114,7 @@ export async function pollSource(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger.error('poll failed', { error: message });
-    deps.store.recordRun({
+    await deps.store.recordRun({
       id: randomUUID(),
       sourceId: source.id,
       startedAt,
@@ -131,7 +131,8 @@ export async function pollSource(
 }
 
 export async function pollAll(deps: PollDeps): Promise<PollSummary[]> {
-  const sources = deps.store.listSources().filter((source) => source.enabled);
+  const allSources = await deps.store.listSources();
+  const sources = allSources.filter((source) => source.enabled);
   const summaries: PollSummary[] = [];
   for (const source of sources) {
     const adapter = deps.sources.get(source.kind);

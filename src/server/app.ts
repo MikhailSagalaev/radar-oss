@@ -319,14 +319,15 @@ export function createApp(runtime: Runtime): Hono {
     return c.json({ error: 'internal_error' }, 500);
   });
 
-  app.get('/health', (c) =>
-    c.json({
+  app.get('/health', async (c) => {
+    const stats = await runtime.store.getStats();
+    return c.json({
       ok: true,
       version: VERSION,
       uptimeSec: Math.round(process.uptime()),
-      sources: runtime.store.getStats().sources,
-    }),
-  );
+      sources: stats.sources,
+    });
+  });
 
   app.get('/login', (c) => {
     if (!runtime.env.RADAR_ADMIN_TOKEN) return c.redirect('/');
@@ -355,7 +356,7 @@ export function createApp(runtime: Runtime): Hono {
     return c.redirect('/login');
   });
 
-  app.get('/', (c) => {
+  app.get('/', async (c) => {
     if (!canRead(c, runtime.env)) return c.redirect('/login');
     const rawStatus = c.req.query('status') ?? '';
     const status = ['new', 'delivered', 'rejected', 'failed'].includes(rawStatus)
@@ -363,15 +364,21 @@ export function createApp(runtime: Runtime): Hono {
       : '';
     const query = (c.req.query('q') ?? '').trim();
 
+    const [stats, health, leads] = await Promise.all([
+      runtime.store.getStats(),
+      runtime.store.getSourceHealth(),
+      runtime.store.listLeads({
+        limit: 50,
+        status: status || undefined,
+        query: query || undefined,
+      }),
+    ]);
+
     return c.html(
       renderLeadsPage({
-        stats: runtime.store.getStats(),
-        health: runtime.store.getSourceHealth(),
-        leads: runtime.store.listLeads({
-          limit: 50,
-          status: status || undefined,
-          query: query || undefined,
-        }),
+        stats,
+        health,
+        leads,
         query,
         status,
         version: VERSION,
@@ -379,11 +386,10 @@ export function createApp(runtime: Runtime): Hono {
     );
   });
 
-  app.get('/extension', (c) => {
+  app.get('/extension', async (c) => {
     if (!canRead(c, runtime.env)) return c.redirect('/login');
-    const webhookSources = runtime.store
-      .listSources()
-      .filter((s) => s.kind === 'webhook' && s.enabled);
+    const allSources = await runtime.store.listSources();
+    const webhookSources = allSources.filter((s) => s.kind === 'webhook' && s.enabled);
     return c.html(
       renderExtensionPage({
         version: VERSION,
@@ -392,11 +398,11 @@ export function createApp(runtime: Runtime): Hono {
     );
   });
 
-  app.get('/sources', (c) => {
+  app.get('/sources', async (c) => {
     if (!canRead(c, runtime.env)) return c.redirect('/login');
     return c.html(
       renderSourcesPage({
-        health: runtime.store.getSourceHealth(),
+        health: await runtime.store.getSourceHealth(),
         version: VERSION,
       }),
     );
@@ -405,7 +411,7 @@ export function createApp(runtime: Runtime): Hono {
   app.post('/sources/presets', async (c) => {
     if (!isAdmin(c, runtime.env)) return c.redirect('/login');
     if (!sameOrigin(c)) return c.text('Forbidden', 403);
-    const existing = runtime.store.listSources();
+    const existing = await runtime.store.listSources();
     for (const preset of SOURCE_PRESETS) {
       const already = existing.some(
         (s) =>
@@ -414,7 +420,7 @@ export function createApp(runtime: Runtime): Hono {
           (preset.config.channel && s.config.channel === preset.config.channel),
       );
       if (already) continue;
-      runtime.store.createSource({
+      await runtime.store.createSource({
         kind: preset.kind,
         title: preset.title,
         config: preset.config,
@@ -438,9 +444,9 @@ export function createApp(runtime: Runtime): Hono {
     );
   });
 
-  app.get('/sources/:id/edit', (c) => {
+  app.get('/sources/:id/edit', async (c) => {
     if (!isAdmin(c, runtime.env)) return c.redirect('/login');
-    const source = runtime.store.getSource(c.req.param('id'));
+    const source = await runtime.store.getSource(c.req.param('id'));
     if (!source) return c.html(renderNotFound(VERSION), 404);
     return c.html(
       renderNewSourcePage({
@@ -483,7 +489,7 @@ export function createApp(runtime: Runtime): Hono {
     const built = buildSourceConfig(kind, body);
     if (built.error) return fail(built.error);
 
-    const created = runtime.store.createSource({
+    const created = await runtime.store.createSource({
       kind,
       title: values.title,
       config: built.config,
@@ -505,7 +511,7 @@ export function createApp(runtime: Runtime): Hono {
   app.post('/sources/:id', async (c) => {
     if (!isAdmin(c, runtime.env)) return c.redirect('/login');
     if (!sameOrigin(c)) return c.text('Forbidden', 403);
-    const source = runtime.store.getSource(c.req.param('id'));
+    const source = await runtime.store.getSource(c.req.param('id'));
     if (!source) return c.html(renderNotFound(VERSION), 404);
 
     const body = (await c.req.parseBody()) as Record<string, unknown>;
@@ -531,20 +537,19 @@ export function createApp(runtime: Runtime): Hono {
     const built = buildSourceConfig(source.kind, body, source);
     if (built.error) return fail(built.error);
 
-    runtime.store.updateSource(source.id, {
+    await runtime.store.updateSource(source.id, {
       title: values.title,
       config: built.config,
     });
     return c.redirect(`/sources/${source.id}?updated=1`);
   });
 
-  app.get('/sources/:id', (c) => {
+  app.get('/sources/:id', async (c) => {
     if (!canRead(c, runtime.env)) return c.redirect('/login');
-    const source = runtime.store.getSource(c.req.param('id'));
+    const source = await runtime.store.getSource(c.req.param('id'));
     if (!source) return c.html(renderNotFound(VERSION), 404);
-    const health = runtime.store
-      .getSourceHealth()
-      .find((item) => item.source.id === source.id) ?? {
+    const allHealth = await runtime.store.getSourceHealth();
+    const health = allHealth.find((item) => item.source.id === source.id) ?? {
       source,
       last24h: {
         found: 0,
@@ -557,12 +562,16 @@ export function createApp(runtime: Runtime): Hono {
       },
       successRate: 0,
     };
+    const [leads, runs] = await Promise.all([
+      runtime.store.listLeads({ sourceId: source.id, limit: 20 }),
+      runtime.store.listRuns(20, source.id),
+    ]);
     return c.html(
       renderSourcePage({
         source,
         health,
-        leads: runtime.store.listLeads({ sourceId: source.id, limit: 20 }),
-        runs: runtime.store.listRuns(20, source.id),
+        leads,
+        runs,
         version: VERSION,
         notice:
           c.req.query('created') === '1'
@@ -574,55 +583,58 @@ export function createApp(runtime: Runtime): Hono {
     );
   });
 
-  app.get('/leads/:id', (c) => {
+  app.get('/leads/:id', async (c) => {
     if (!canRead(c, runtime.env)) return c.redirect('/login');
-    const lead = runtime.store.getLead(c.req.param('id'));
+    const lead = await runtime.store.getLead(c.req.param('id'));
     if (!lead) return c.html(renderNotFound(VERSION), 404);
+    const source = await runtime.store.getSource(lead.sourceId);
     return c.html(
       renderLeadPage({
         lead,
-        source: runtime.store.getSource(lead.sourceId) ?? undefined,
+        source: source ?? undefined,
         version: VERSION,
       }),
     );
   });
 
-  app.post('/sources/:id/toggle', (c) => {
+  app.post('/sources/:id/toggle', async (c) => {
     if (!isAdmin(c, runtime.env)) return c.redirect('/login');
     if (!sameOrigin(c)) return c.text('Forbidden', 403);
-    const source = runtime.store.getSource(c.req.param('id'));
+    const source = await runtime.store.getSource(c.req.param('id'));
     if (!source) return c.html(renderNotFound(VERSION), 404);
-    runtime.store.updateSource(source.id, { enabled: !source.enabled });
+    await runtime.store.updateSource(source.id, { enabled: !source.enabled });
     return c.redirect(`/sources/${source.id}`);
   });
 
-  app.post('/sources/:id/delete', (c) => {
+  app.post('/sources/:id/delete', async (c) => {
     if (!isAdmin(c, runtime.env)) return c.redirect('/login');
     if (!sameOrigin(c)) return c.text('Forbidden', 403);
-    const source = runtime.store.getSource(c.req.param('id'));
+    const source = await runtime.store.getSource(c.req.param('id'));
     if (!source) return c.html(renderNotFound(VERSION), 404);
-    runtime.store.deleteSource(source.id);
+    await runtime.store.deleteSource(source.id);
     return c.redirect('/sources');
   });
 
-  app.get('/api/sources/health', (c) => {
+  app.get('/api/sources/health', async (c) => {
     if (!canRead(c, runtime.env)) return c.json({ error: 'unauthorized' }, 401);
+    const health = await runtime.store.getSourceHealth();
     return c.json(
-      runtime.store.getSourceHealth().map((item) => ({
+      health.map((item) => ({
         ...item,
         source: redactSource(item.source),
       })),
     );
   });
 
-  app.get('/api/stats', (c) => {
+  app.get('/api/stats', async (c) => {
     if (!canRead(c, runtime.env)) return c.json({ error: 'unauthorized' }, 401);
-    return c.json(runtime.store.getStats());
+    return c.json(await runtime.store.getStats());
   });
 
-  app.get('/api/sources', (c) => {
+  app.get('/api/sources', async (c) => {
     if (!canRead(c, runtime.env)) return c.json({ error: 'unauthorized' }, 401);
-    return c.json(runtime.store.listSources().map(redactSource));
+    const sources = await runtime.store.listSources();
+    return c.json(sources.map(redactSource));
   });
 
   app.post('/api/sources', async (c) => {
@@ -641,7 +653,7 @@ export function createApp(runtime: Runtime): Hono {
       body.config && typeof body.config === 'object' && !Array.isArray(body.config)
         ? (body.config as Record<string, unknown>)
         : {};
-    const created = runtime.store.createSource({
+    const created = await runtime.store.createSource({
       kind,
       title,
       config,
@@ -654,7 +666,7 @@ export function createApp(runtime: Runtime): Hono {
     if (!isAdmin(c, runtime.env)) return c.json({ error: 'unauthorized' }, 401);
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body) return c.json({ error: 'invalid_json' }, 400);
-    const updated = runtime.store.updateSource(c.req.param('id'), {
+    const updated = await runtime.store.updateSource(c.req.param('id'), {
       title: asString(body.title),
       enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
       config:
@@ -666,25 +678,25 @@ export function createApp(runtime: Runtime): Hono {
     return c.json(redactSource(updated));
   });
 
-  app.delete('/api/sources/:id', (c) => {
+  app.delete('/api/sources/:id', async (c) => {
     if (!isAdmin(c, runtime.env)) return c.json({ error: 'unauthorized' }, 401);
-    return runtime.store.deleteSource(c.req.param('id'))
+    return (await runtime.store.deleteSource(c.req.param('id')))
       ? c.json({ ok: true })
       : c.json({ error: 'not_found' }, 404);
   });
 
-  app.get('/api/leads', (c) => {
+  app.get('/api/leads', async (c) => {
     if (!canRead(c, runtime.env)) return c.json({ error: 'unauthorized' }, 401);
     const limit = Math.max(1, Math.min(Number(c.req.query('limit') ?? 50) || 50, 500));
     const status = c.req.query('status') as LeadStatus | undefined;
     const sourceId = c.req.query('source') || undefined;
     const query = c.req.query('q')?.trim() || undefined;
-    return c.json(runtime.store.listLeads({ limit, status, sourceId, query }));
+    return c.json(await runtime.store.listLeads({ limit, status, sourceId, query }));
   });
 
-  app.get('/api/runs', (c) => {
+  app.get('/api/runs', async (c) => {
     if (!canRead(c, runtime.env)) return c.json({ error: 'unauthorized' }, 401);
-    return c.json(runtime.store.listRuns(Number(c.req.query('limit') ?? 20) || 20));
+    return c.json(await runtime.store.listRuns(Number(c.req.query('limit') ?? 20) || 20));
   });
 
   app.post('/api/poll', async (c) => {
@@ -698,7 +710,7 @@ export function createApp(runtime: Runtime): Hono {
 
   app.post('/api/sources/:id/poll', async (c) => {
     if (!isAdmin(c, runtime.env)) return c.json({ error: 'unauthorized' }, 401);
-    const source = runtime.store.getSource(c.req.param('id'));
+    const source = await runtime.store.getSource(c.req.param('id'));
     if (!source) return c.json({ error: 'not_found' }, 404);
     const summary = await pollSource(source, {
       ...deps(runtime),
@@ -708,7 +720,7 @@ export function createApp(runtime: Runtime): Hono {
   });
 
   app.post('/api/ingest/:sourceId', async (c) => {
-    const source = runtime.store.getSource(c.req.param('sourceId'));
+    const source = await runtime.store.getSource(c.req.param('sourceId'));
     if (!source) return c.json({ error: 'not_found' }, 404);
 
     const sourceToken =

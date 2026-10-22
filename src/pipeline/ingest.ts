@@ -47,11 +47,11 @@ export async function ingestRawLead(
   const now = deps.now?.() ?? new Date();
   const prepared = prepareRawLead(raw, source, now);
 
-  const byFingerprint = deps.store.findLeadByFingerprint(prepared.fingerprint);
+  const byFingerprint = await deps.store.findLeadByFingerprint(prepared.fingerprint);
   if (byFingerprint) return duplicateLead(byFingerprint, prepared.fingerprint);
 
   const since = new Date(now.getTime() - 24 * 3600 * 1000).toISOString();
-  const byTitle = deps.store.findRecentByTitleKey(prepared.titleKey, prepared.city, since);
+  const byTitle = await deps.store.findRecentByTitleKey(prepared.titleKey, prepared.city, since);
   if (byTitle) return duplicateLead(byTitle, prepared.fingerprint);
 
   const rules = applyRules(prepared, source, now);
@@ -129,7 +129,7 @@ export async function ingestRawLead(
     createdAt: now.toISOString(),
   };
 
-  const inserted = deps.store.insertLead(lead);
+  const inserted = await deps.store.insertLead(lead);
   if (!inserted) return { status: 'duplicate', reasons: ['duplicate:race'] };
 
   if (status === 'rejected') {
@@ -143,7 +143,7 @@ export async function ingestRawLead(
   });
 
   for (const delivery of deliveries) {
-    deps.store.recordDelivery(
+    await deps.store.recordDelivery(
       lead.id,
       delivery.sink,
       delivery.ok ? 'sent' : 'failed',
@@ -157,7 +157,7 @@ export async function ingestRawLead(
 
   const failed = deliveries.filter((delivery) => !delivery.ok);
   if (failed.length > 0) {
-    deps.store.updateLeadStatus(lead.id, 'failed');
+    await deps.store.updateLeadStatus(lead.id, 'failed');
     lead.status = 'failed';
     return {
       status: 'failed',
@@ -168,7 +168,7 @@ export async function ingestRawLead(
   }
 
   const deliveredAt = new Date().toISOString();
-  deps.store.updateLeadStatus(lead.id, 'delivered', deliveredAt);
+  await deps.store.updateLeadStatus(lead.id, 'delivered', deliveredAt);
   lead.status = 'delivered';
   lead.deliveredAt = deliveredAt;
   return { status: 'delivered', lead, reasons };

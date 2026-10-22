@@ -256,8 +256,8 @@ function buildProgram(): Command {
         config.token = randomBytes(16).toString('hex');
       }
 
-      await withRuntime((runtime) => {
-        const created = runtime.store.createSource({
+      await withRuntime(async (runtime) => {
+        const created = await runtime.store.createSource({
           kind,
           title: options.title,
           config,
@@ -276,8 +276,8 @@ function buildProgram(): Command {
     .command('list')
     .description('List sources')
     .action(async () => {
-      await withRuntime((runtime) => {
-        const sources = runtime.store.listSources();
+      await withRuntime(async (runtime) => {
+        const sources = await runtime.store.listSources();
         if (!sources.length) {
           console.log('Источников нет. Добавьте: radar source add ...');
           return;
@@ -330,7 +330,7 @@ function buildProgram(): Command {
     .description('List or add pre-configured freelance and order sources')
     .option('--add', 'Add all preset sources into the database')
     .action(async (options: { add?: boolean }) => {
-      await withRuntime((runtime) => {
+      await withRuntime(async (runtime) => {
         if (!options.add) {
           console.log('Доступные предустановленные источники:');
           const rows = SOURCE_PRESETS.map((p) => [p.id, p.kind, p.title, p.description]);
@@ -338,7 +338,7 @@ function buildProgram(): Command {
           console.log('\nЧтобы добавить их в базу, выполните: radar source presets --add');
           return;
         }
-        const existing = runtime.store.listSources();
+        const existing = await runtime.store.listSources();
         let added = 0;
         for (const preset of SOURCE_PRESETS) {
           const already = existing.some(
@@ -348,7 +348,7 @@ function buildProgram(): Command {
               (preset.config.channel && s.config.channel === preset.config.channel),
           );
           if (already) continue;
-          runtime.store.createSource({
+          await runtime.store.createSource({
             kind: preset.kind,
             title: preset.title,
             config: preset.config,
@@ -368,7 +368,7 @@ function buildProgram(): Command {
       await withRuntime(async (runtime) => {
         const deps = pollDeps(runtime);
         if (sourceId) {
-          const item = runtime.store.getSource(sourceId);
+          const item = await runtime.store.getSource(sourceId);
           if (!item) fail(`source ${sourceId} not found`);
           const summary = await pollSource(item, deps);
           printSummaries([summary]);
@@ -389,8 +389,8 @@ function buildProgram(): Command {
     .option('--source <id>', 'Filter by source id')
     .option('--json', 'Print JSON')
     .action(async (options: { limit: string; status?: string; source?: string; json?: boolean }) => {
-      await withRuntime((runtime) => {
-        const leads = runtime.store.listLeads({
+      await withRuntime(async (runtime) => {
+        const leads = await runtime.store.listLeads({
           limit: Number(options.limit) || 20,
           status: options.status as LeadStatus | undefined,
           sourceId: options.source,
@@ -404,8 +404,8 @@ function buildProgram(): Command {
     .command('stats')
     .description('Print counters')
     .action(async () => {
-      await withRuntime((runtime) => {
-        console.log(JSON.stringify(runtime.store.getStats(), null, 2));
+      await withRuntime(async (runtime) => {
+        console.log(JSON.stringify(await runtime.store.getStats(), null, 2));
       });
     });
 
@@ -414,8 +414,8 @@ function buildProgram(): Command {
     .description('Show recent poll runs')
     .option('--limit <n>', 'Number of runs', '20')
     .action(async (options: { limit: string }) => {
-      await withRuntime((runtime) => {
-        const runs = runtime.store.listRuns(Number(options.limit) || 20);
+      await withRuntime(async (runtime) => {
+        const runs = await runtime.store.listRuns(Number(options.limit) || 20);
         const rows = runs.map((run) => [
           run.sourceId,
           String(run.found),
@@ -496,8 +496,8 @@ function buildProgram(): Command {
       if (format !== 'json' && format !== 'csv') fail('format must be json or csv');
       const out = options.out ?? (format === 'csv' ? 'radar-export.csv' : 'radar-export.json');
 
-      await withRuntime((runtime) => {
-        const leads = runtime.store.listLeads({ limit: Number(options.limit) || 5000 });
+      await withRuntime(async (runtime) => {
+        const leads = await runtime.store.listLeads({ limit: Number(options.limit) || 5000 });
         if (format === 'json') {
           writeFileSync(resolve(out), JSON.stringify(leads, null, 2), 'utf8');
         } else {

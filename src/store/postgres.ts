@@ -21,7 +21,14 @@ const { Pool } = pg;
 
 export const POSTGRES_SCHEMA = `
 -- Включаем pgvector (если доступен на сервере)
-CREATE EXTENSION IF NOT EXISTS vector;
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS vector;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'pgvector is not available, skipping...';
+END
+$$;
 
 -- Источники лидов (RSS, IMAP, TG, Webhooks, Community Extension)
 CREATE TABLE IF NOT EXISTS sources (
@@ -108,7 +115,7 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox_events(status, created_at ASC) WHERE status = 'PENDING';
 `;
 
-export class PostgresStore {
+export class PostgresStore implements Store {
   private pool: pg.Pool;
 
   constructor(connectionString: string) {
@@ -442,6 +449,14 @@ export class PostgresStore {
         successRate: runs === 0 ? 1 : Math.max(0, (runs - errors) / runs),
       };
     });
+  }
+
+  async recordDelivery(leadId: string, sink: string, status: 'sent' | 'failed', error?: string): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO deliveries (id, lead_id, sink, status, error)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [randomUUID(), leadId, sink, status, error ?? null]
+    );
   }
 
   async recordRun(run: RunRecord): Promise<void> {

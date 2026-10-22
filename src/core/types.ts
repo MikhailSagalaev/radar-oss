@@ -12,6 +12,7 @@ export interface Logger {
 }
 
 export interface Env {
+  DATABASE_URL?: string;
   RADAR_DB_PATH: string;
   RADAR_ADMIN_TOKEN?: string;
   RADAR_USER_AGENT: string;
