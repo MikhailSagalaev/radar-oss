@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- The admin session cookie is marked `Secure` when the request arrives over HTTPS.
+- Test deployment behind nginx with `X-Forwarded-Proto`.
+
 ## 0.2.1
 
 - Sources can be added, enabled, disabled and deleted from the dashboard.

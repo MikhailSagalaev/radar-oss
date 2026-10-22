@@ -6,7 +6,7 @@ Self-hosted lead pipeline for public order sources.
 
 Radar watches the sources you configure, normalizes new orders, removes duplicates, filters spam, scores relevance and delivers leads to Telegram, a webhook or the console. It is a small, inspectable alternative to paid "lead radar" channels.
 
-**Status: early v0.2.1.** It is not a hosted service and it does not promise to scrape every marketplace. It gives you a pipeline, a few working adapters and a clear contract for adding more.
+**Status: early v0.2.2.** It is not a hosted service and it does not promise to scrape every marketplace. It gives you a pipeline, a few working adapters and a clear contract for adding more.
 
 ![Radar dashboard](docs/screenshots/dashboard.png)
 

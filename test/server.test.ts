@@ -189,6 +189,24 @@ describe('http server', () => {
     runtime.store.close();
   });
 
+  it('sets a secure cookie behind an https proxy', async () => {
+    const runtime = makeRuntime();
+    const app = createApp(runtime);
+
+    const response = await app.request('/login', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'x-forwarded-proto': 'https',
+      },
+      body: formBody({ token: 'secret' }),
+    });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('set-cookie')).toContain('Secure');
+    runtime.store.close();
+  });
+
   it('rejects cross-origin form posts', async () => {
     const runtime = makeOpenRuntime();
     const app = createApp(runtime);

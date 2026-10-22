@@ -258,6 +258,7 @@ export function createApp(runtime: Runtime): Hono {
     setCookie(c, 'radar_token', token, {
       httpOnly: true,
       sameSite: 'Lax',
+      secure: c.req.header('x-forwarded-proto') === 'https',
       path: '/',
       maxAge: 30 * 24 * 3600,
     });
