@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3
+
+- The dashboard, source page, login and extension popup are fully monochrome.
+- Status is conveyed by filled, ring and muted dots instead of colour.
+- Updated screenshots.
+
 ## 0.2.2
 
 - The admin session cookie is marked `Secure` when the request arrives over HTTPS.

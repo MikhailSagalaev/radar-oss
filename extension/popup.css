@@ -3,8 +3,6 @@
   --ink: #171717;
   --muted: #737373;
   --line: #e5e5e5;
-  --ok: #15803d;
-  --err: #b91c1c;
 }
 
 * {
@@ -103,9 +101,10 @@ button.ghost {
 }
 
 .status.ok {
-  color: var(--ok);
+  color: var(--ink);
 }
 
 .status.err {
-  color: var(--err);
+  color: var(--ink);
+  font-weight: 600;
 }

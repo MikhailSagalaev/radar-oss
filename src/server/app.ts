@@ -48,12 +48,13 @@ function canRead(c: Context, env: Runtime['env']): boolean {
 function loginPage(error?: string): string {
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Radar — вход</title>
-<style>body{font:15px/1.5 system-ui,sans-serif;background:#f5f5f4;color:#1c1917;display:grid;place-items:center;min-height:100vh;margin:0}
-form{background:#fff;border:1px solid #e7e5e4;border-radius:12px;padding:24px;width:min(360px,90vw)}
-h1{font-size:20px;margin:0 0 6px}p{color:#78716c;font-size:13px;margin:0 0 16px}
-input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #d6d3d1;border-radius:8px;font:inherit;margin-bottom:12px}
-button{width:100%;padding:10px;border:0;border-radius:8px;background:#0f766e;color:#fff;font:inherit;cursor:pointer}
-.error{color:#b91c1c;font-size:13px;margin-bottom:10px}</style></head>
+<style>body{font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;background:#fafafa;color:#171717;display:grid;place-items:center;min-height:100vh;margin:0}
+form{background:#fff;border:1px solid #e5e5e5;border-radius:6px;padding:24px;width:min(360px,90vw)}
+h1{font-size:20px;margin:0 0 6px}p{color:#737373;font-size:13px;margin:0 0 16px}
+input{width:100%;box-sizing:border-box;padding:9px;border:1px solid #e5e5e5;border-radius:5px;font:inherit;margin-bottom:12px}
+input:focus{outline:1px solid #171717;border-color:#171717}
+button{width:100%;padding:9px;border:0;border-radius:5px;background:#171717;color:#fff;font:inherit;cursor:pointer}
+.error{color:#171717;font-size:13px;font-weight:600;margin-bottom:10px}</style></head>
 <body><form method="post" action="/login">
 <h1>Radar</h1><p>Введите админ-токен из RADAR_ADMIN_TOKEN</p>
 ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}

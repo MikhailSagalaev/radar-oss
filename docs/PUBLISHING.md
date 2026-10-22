@@ -55,9 +55,9 @@ Topics: `lead-generation`, `self-hosted`, `rss`, `imap`, `telegram`, `typescript
 ## 5. Release
 
 ```bash
-git tag v0.2.1
-git push origin v0.2.1
-gh release create v0.2.1 --generate-notes
+git tag v0.2.3
+git push origin v0.2.3
+gh release create v0.2.3 --generate-notes
 ```
 
 Attach nothing that contains a database or a `.env`.
