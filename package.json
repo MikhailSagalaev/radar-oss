@@ -37,6 +37,7 @@
     "hono": "^4.13.13",
     "imapflow": "^2.5.9",
     "mailparser": "^3.10.0",
+    "pg": "^8.13.1",
     "rss-parser": "^3.13.0",
     "zod": "^4.6.7"
   },
@@ -44,6 +45,7 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/mailparser": "^3.9.0",
     "@types/node": "^26.6.5",
+    "@types/pg": "^8.11.10",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
