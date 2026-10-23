@@ -791,13 +791,13 @@ function layout(input: {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(input.title)} · Open Radar</title>
+<title>${escapeHtml(input.title)} · OpenRadar</title>
 <style>${STYLE}</style>
 </head>
 <body>
 <main>
 <header class="top">
-  <a class="brand" href="/">Open Radar</a>
+  <a class="brand" href="/">OpenRadar</a>
   <span class="version">v${escapeHtml(input.version)}</span>
   <nav class="nav">
     ${nav('leads', 'Заказы', '/')}
@@ -809,7 +809,7 @@ ${input.body}
 <footer>
   <div class="footer-wrap">
     <div>
-      <p class="footer-brand"><b>Open Radar</b> — открытый децентрализованный агрегатор заказов и вакансий.</p>
+      <p class="footer-brand"><b>OpenRadar</b> — открытый децентрализованный агрегатор заказов и вакансий.</p>
       <p class="muted" style="margin:0">Свободное программное обеспечение. Лицензия Apache 2.0.</p>
     </div>
     <div class="footer-nav">
@@ -1791,7 +1791,7 @@ export function renderSubmitPage(data: SubmitPageData): string {
 
     <div style="display:flex;align-items:center;justify-content:space-between;padding-top:16px;margin-top:12px">
       <div id="submit-status" style="font-size:12px;color:var(--muted)"></div>
-      <button id="submit-btn" type="button" class="btn" style="padding:10px 24px;font-size:13.5px">Опубликовать в Open Radar</button>
+      <button id="submit-btn" type="button" class="btn" style="padding:10px 24px;font-size:13.5px">Опубликовать в OpenRadar</button>
     </div>
   </div>
 </form>`;

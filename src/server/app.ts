@@ -1156,7 +1156,7 @@ export function createApp(runtime: Runtime): Hono {
     const proto = c.req.header('x-forwarded-proto') || 'http';
     const baseUrl = `${proto}://${host}`;
     const feedUrl = new URL(c.req.url, baseUrl).toString();
-    const feedTitle = q ? `Open Radar — Поиск: ${q}` : 'Open Radar — Свежие заказы и вакансии';
+    const feedTitle = q ? `OpenRadar — Поиск: ${q}` : 'OpenRadar — Свежие заказы и вакансии';
 
     const xml = renderRssFeed({
       leads,

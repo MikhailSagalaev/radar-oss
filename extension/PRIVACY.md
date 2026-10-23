@@ -1,9 +1,9 @@
-# Privacy Policy for Open Radar Extension
+# Privacy Policy for OpenRadar Extension
 
 **Last Updated:** October 23, 2026
 
 ## Overview
-Open Radar Extension is an open-source browser extension designed to help users capture job postings and freelance gigs from public web pages into their self-hosted or community Open Radar instance.
+OpenRadar Extension is an open-source browser extension designed to help users capture job postings and freelance gigs from public web pages into their self-hosted or community OpenRadar instance.
 
 ## Data Collection and Usage
 1. **No Personal Data Collection:** The extension does not collect, store, sell, or transmit personal data to any centralized third-party servers, tracking services, or analytics platforms.

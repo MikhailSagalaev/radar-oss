@@ -1,4 +1,4 @@
-# Contributing to Open Radar / Руководство контрибьютора
+# Contributing to OpenRadar / Руководство контрибьютора
 
 [English](#english) | [Русский](#русский)
 
@@ -7,7 +7,7 @@
 <a name="english"></a>
 ## English
 
-Thanks for taking a look. Open Radar is an open-source decentralized library of jobs (`job`) and gigs (`gig`) curated by community intelligence and free of paywalls, spam, and paid response fees.
+Thanks for taking a look. OpenRadar is an open-source decentralized library of jobs (`job`) and gigs (`gig`) curated by community intelligence and free of paywalls, spam, and paid response fees.
 
 The bar for a useful contribution is straightforward: one working adapter, one fixture, one test.
 
@@ -67,7 +67,7 @@ Submit your Pull Request with a short description of the source and a sample par
 <a name="русский"></a>
 ## Русский
 
-Open Radar — открытая библиотека вакансий (`job`) и заказов (`gig`), где качество данных регулируется коллективным отбором сообщества без платных откликов и накруток.
+OpenRadar — открытая библиотека вакансий (`job`) и заказов (`gig`), где качество данных регулируется коллективным отбором сообщества без платных откликов и накруток.
 
 Мы приветствуем добавление коннекторов к открытым площадкам, биржам, каналам и открытым API.
 

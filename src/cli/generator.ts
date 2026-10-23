@@ -76,7 +76,7 @@ import { sanitizePrivacy } from '../../core/privacy.ts';
 export const ${camelName}Source: SourceAdapter = {
   kind: '${cleanName}',
   access: 'public',
-  description: '${pascalName} connector for Open Radar',
+  description: '${pascalName} connector for OpenRadar',
   risks: [
     'Markup or API structure may change without notice',
     'Rate limiting may apply to automated requests',
@@ -191,7 +191,7 @@ import { sanitizePrivacy } from '../../core/privacy.ts';
 export const ${camelName}Source: SourceAdapter = {
   kind: '${cleanName}',
   access: 'public',
-  description: '${pascalName} connector for Open Radar',
+  description: '${pascalName} connector for OpenRadar',
   risks: [
     'HTML markup may change without notice',
     'Rate limiting may apply to automated requests',

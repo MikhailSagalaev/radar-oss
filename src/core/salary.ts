@@ -1,5 +1,5 @@
 /**
- * Open Radar - Currency and Salary Normalization Engine
+ * OpenRadar - Currency and Salary Normalization Engine
  * Handles multi-currency salaries, period extraction (monthly/hourly/fixed),
  * and conversion to canonical USD base for unified filtering and sorting.
  */

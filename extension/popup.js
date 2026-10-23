@@ -1,5 +1,5 @@
 /**
- * Open Radar - Popup script
+ * OpenRadar - Popup script
  * Swiss-style typography, zero emoji.
  */
 

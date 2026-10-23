@@ -1,5 +1,5 @@
 /**
- * Open Radar - Content Script & schema.org/JobPosting extraction helper
+ * OpenRadar - Content Script & schema.org/JobPosting extraction helper
  * Swiss-style typography, zero emoji.
  */
 
