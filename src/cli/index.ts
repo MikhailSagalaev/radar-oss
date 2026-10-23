@@ -10,6 +10,8 @@ import { createRuntime, type Runtime } from '../runtime.ts';
 import { createApp } from '../server/app.ts';
 import { startServer } from '../server/index.ts';
 import { SOURCE_PRESETS } from '../sources/presets.ts';
+import { loadEnv } from '../config.ts';
+import { runMigrations } from '../store/migrator.ts';
 import { VERSION } from '../version.ts';
 
 const SOURCE_KINDS: SourceKind[] = ['rss', 'telegram', 'kwork', 'webhook', 'imap'];
@@ -164,17 +166,43 @@ function buildProgram(): Command {
     .version(VERSION);
 
   program
-    .command('init')
-    .description('Create the SQLite database and print the next steps')
+    .command('migrate')
+    .description('Apply database migrations in PostgreSQL')
     .action(async () => {
-      await withRuntime((runtime) => {
-        console.log(`База данных: ${resolve(runtime.env.RADAR_DB_PATH)}`);
-        console.log('Дальше:');
-        console.log('  radar source presets --add   # загрузить популярные биржи (FL.ru, Хабр, Kwork, Telegram)');
-        console.log('  radar source add --kind rss --title "Feed" --url https://example.com/rss');
-        console.log('  radar poll');
-        console.log('  radar serve');
-      });
+      const env = loadEnv();
+      if (!env.DATABASE_URL) {
+        fail('DATABASE_URL is not configured in .env');
+      }
+      console.log('Выполняем миграции базы данных...');
+      try {
+        const result = await runMigrations(env.DATABASE_URL);
+        if (result.applied.length === 0) {
+          console.log('Схема базы данных уже актуальна (миграций нет).');
+        } else {
+          console.log(`Успешно применены миграции: ${result.applied.join(', ')}`);
+        }
+      } catch (err) {
+        fail(`Ошибка миграции: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
+
+  program
+    .command('init')
+    .description('Initialize database and show next steps')
+    .action(async () => {
+      const env = loadEnv();
+      if (env.DATABASE_URL) {
+        try {
+          await runMigrations(env.DATABASE_URL);
+        } catch (err) {
+          fail(`Ошибка миграции: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      console.log('База данных готова.');
+      console.log('Дальше:');
+      console.log('  radar source presets --add   # загрузить популярные биржи (FL.ru, Хабр, Kwork, Telegram)');
+      console.log('  radar poll');
+      console.log('  radar serve');
     });
 
   const source = program.command('source').description('Manage sources');

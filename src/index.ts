@@ -8,7 +8,8 @@ export { defineSink, defineSource } from './sdk.ts';
 export { VERSION } from './version.ts';
 
 export { createRuntime, type Runtime } from './runtime.ts';
-export { openStore, SqliteStore } from './store/sqlite.ts';
+export { PostgresStore } from './store/postgres.ts';
+export { MemoryStore } from './store/memory.ts';
 
 export { createSourceRegistry, SourceRegistry } from './sources/index.ts';
 export { createSinkRegistry, SinkRegistry } from './sinks/index.ts';

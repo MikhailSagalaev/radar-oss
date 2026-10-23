@@ -17,103 +17,9 @@ import type {
   UpdateSourceInput,
 } from '../core/store.ts';
 
+import { checkMigrations } from './migrator.ts';
+
 const { Pool } = pg;
-
-export const POSTGRES_SCHEMA = `
--- Включаем pgvector (если доступен на сервере)
-DO $$
-BEGIN
-  CREATE EXTENSION IF NOT EXISTS vector;
-EXCEPTION
-  WHEN OTHERS THEN
-    RAISE NOTICE 'pgvector is not available, skipping...';
-END
-$$;
-
--- Источники лидов (RSS, IMAP, TG, Webhooks, Community Extension)
-CREATE TABLE IF NOT EXISTS sources (
-  id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL,
-  title TEXT NOT NULL,
-  enabled BOOLEAN NOT NULL DEFAULT TRUE,
-  config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Основная таблица лидов и вакансий
-CREATE TABLE IF NOT EXISTS leads (
-  id TEXT PRIMARY KEY,
-  source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-  external_id TEXT,
-  url TEXT,
-  canonical_url TEXT,
-  title TEXT NOT NULL,
-  text TEXT NOT NULL,
-  author TEXT,
-  city TEXT,
-  budget DOUBLE PRECISION,
-  currency TEXT DEFAULT 'RUB',
-  category TEXT,
-  skills_json JSONB DEFAULT '[]'::jsonb,
-  is_remote BOOLEAN DEFAULT TRUE,
-  metadata_json JSONB DEFAULT '{}'::jsonb,
-  published_at TIMESTAMPTZ,
-  fingerprint TEXT NOT NULL UNIQUE,
-  title_key TEXT NOT NULL,
-  status TEXT NOT NULL,
-  score INTEGER NOT NULL DEFAULT 0,
-  reasons_json JSONB NOT NULL DEFAULT '[]'::jsonb,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  delivered_at TIMESTAMPTZ
-);
-
--- Индексы для сверхбыстрого доступа и фильтрации
-CREATE INDEX IF NOT EXISTS idx_leads_source_created ON leads(source_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_leads_status_created ON leads(status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_leads_title_key ON leads(title_key, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_source_external ON leads(source_id, external_id) WHERE external_id IS NOT NULL;
-
--- Полнотекстовые GIN-индексы на русском и английском языках (BM25 / TsVector)
-CREATE INDEX IF NOT EXISTS idx_leads_fts_ru ON leads USING GIN (to_tsvector('russian', title || ' ' || text));
-CREATE INDEX IF NOT EXISTS idx_leads_fts_en ON leads USING GIN (to_tsvector('english', title || ' ' || text));
-
--- История доставок (Deliveries Sink)
-CREATE TABLE IF NOT EXISTS deliveries (
-  id TEXT PRIMARY KEY,
-  lead_id TEXT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
-  sink TEXT NOT NULL,
-  status TEXT NOT NULL,
-  error TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Логи обходов и запусков (Runs)
-CREATE TABLE IF NOT EXISTS runs (
-  id TEXT PRIMARY KEY,
-  source_id TEXT NOT NULL,
-  started_at TIMESTAMPTZ NOT NULL,
-  finished_at TIMESTAMPTZ,
-  found INTEGER NOT NULL DEFAULT 0,
-  inserted INTEGER NOT NULL DEFAULT 0,
-  duplicates INTEGER NOT NULL DEFAULT 0,
-  rejected INTEGER NOT NULL DEFAULT 0,
-  delivered INTEGER NOT NULL DEFAULT 0,
-  error TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_runs_source_started ON runs(source_id, started_at DESC);
-
--- Transactional Outbox Pattern для гарантированной доставки событий (CDC / Event-Driven)
-CREATE TABLE IF NOT EXISTS outbox_events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  event_type TEXT NOT NULL,
-  payload JSONB NOT NULL,
-  status TEXT NOT NULL DEFAULT 'PENDING',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  processed_at TIMESTAMPTZ
-);
-CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox_events(status, created_at ASC) WHERE status = 'PENDING';
-`;
 
 export class PostgresStore implements Store {
   private pool: pg.Pool;
@@ -128,15 +34,12 @@ export class PostgresStore implements Store {
   }
 
   async init(): Promise<void> {
-    const client = await this.pool.connect();
-    try {
-      // Исполняем миграцию схемы
-      await client.query(POSTGRES_SCHEMA);
-    } catch (err) {
-      console.error('[PostgresStore] Init error:', err);
-      throw err;
-    } finally {
-      client.release();
+    const { ok, pending } = await checkMigrations(this.pool);
+    if (!ok) {
+      throw new Error(
+        `Database schema is not up to date! Pending migrations: ${pending.join(', ')}. ` +
+        `Please run 'radar migrate' before starting the application.`
+      );
     }
   }
 

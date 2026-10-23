@@ -1,6 +1,6 @@
 import { createApp } from '../src/server/app.ts';
 import { createRuntime } from '../src/runtime.ts';
-import { openStore } from '../src/store/sqlite.ts';
+import { MemoryStore } from '../src/store/memory.ts';
 import { createSourceRegistry } from '../src/sources/index.ts';
 import { createSinkRegistry } from '../src/sinks/index.ts';
 import { createLogger } from '../src/core/logger.ts';
@@ -10,14 +10,13 @@ async function runE2ETestSuite() {
   console.log('🚀 [QA Tester] Запуск сквозного (E2E) тестирования Radar...');
 
   const env = loadEnv({
-    RADAR_DB_PATH: ':memory:',
     RADAR_ADMIN_TOKEN: 'qa-admin-secret-token',
     RADAR_CONSOLE_SINK: false,
     RADAR_LLM_ENABLED: false,
   });
 
   const logger = createLogger('error');
-  const store = openStore(':memory:');
+  const store = new MemoryStore();
   const sources = createSourceRegistry();
   const sinks = createSinkRegistry(env);
 

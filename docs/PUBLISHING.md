@@ -39,7 +39,7 @@ Suggested description:
 
 > Self-hosted lead pipeline for public order sources: RSS, IMAP, Telegram, Kwork and webhooks.
 
-Topics: `lead-generation`, `self-hosted`, `rss`, `imap`, `telegram`, `typescript`, `sqlite`, `open-source`.
+Topics: `lead-generation`, `self-hosted`, `rss`, `imap`, `telegram`, `typescript`, `postgresql`, `open-source`.
 
 ## 4. Before the announcement
 

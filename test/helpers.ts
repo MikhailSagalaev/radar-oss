@@ -4,7 +4,7 @@ import type { Env, Lead, PollContext, SinkAdapter, SourceRecord } from '../src/c
 import type { Store } from '../src/core/store.ts';
 import { createSourceRegistry, type SourceRegistry } from '../src/sources/index.ts';
 import { SinkRegistry } from '../src/sinks/index.ts';
-import { openStore } from '../src/store/sqlite.ts';
+import { MemoryStore } from '../src/store/memory.ts';
 import { PostgresStore } from '../src/store/postgres.ts';
 
 export const TEST_NOW = new Date('2026-10-21T12:00:00.000Z');
@@ -12,7 +12,6 @@ export const TEST_NOW = new Date('2026-10-21T12:00:00.000Z');
 export function testEnv(overrides: Partial<Env> = {}): Env {
   return loadEnv({
     NODE_ENV: 'test',
-    RADAR_DB_PATH: ':memory:',
     RADAR_ADMIN_TOKEN: undefined,
     RADAR_CONSOLE_SINK: false,
     RADAR_LOG_LEVEL: 'error',
@@ -72,7 +71,7 @@ export function createTestStore(): Store {
     const url = process.env.DATABASE_URL || 'postgres://radar:radar@127.0.0.1:5432/radar_test';
     return new PostgresStore(url);
   }
-  return openStore(':memory:');
+  return new MemoryStore();
 }
 
 export function makeTestRuntime(overrides: Partial<Env> = {}): TestRuntime {

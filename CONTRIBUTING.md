@@ -12,7 +12,7 @@ pnpm test
 pnpm build
 ```
 
-Node 22.12+ and pnpm 11 are required. The test suite uses an in-memory SQLite database and never calls the network: adapters are tested against fixtures.
+Node 22.12+ and pnpm 11 are required. The test suite uses an in-memory store (or PostgreSQL with pgvector when RADAR_TEST_STORE=postgres is set) and never calls the network: adapters are tested against fixtures.
 
 ## Adding a source adapter
 

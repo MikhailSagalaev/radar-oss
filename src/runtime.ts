@@ -5,7 +5,7 @@ import type { Classifier, Env, Logger } from './core/types.ts';
 import type { Store } from './core/store.ts';
 import { createSinkRegistry, type SinkRegistry } from './sinks/index.ts';
 import { createSourceRegistry, type SourceRegistry } from './sources/index.ts';
-import { openStore as openSqliteStore } from './store/sqlite.ts';
+import { MemoryStore } from './store/memory.ts';
 import { PostgresStore } from './store/postgres.ts';
 
 export interface Runtime {
@@ -37,7 +37,11 @@ export async function createRuntime(env: Env = loadEnv(), overrides: RuntimeOver
     await pgStore.init();
     store = pgStore;
   } else {
-    store = openSqliteStore(env.RADAR_DB_PATH);
+    if (env.NODE_ENV === 'production') {
+      throw new Error('FATAL: DATABASE_URL is not configured in production mode.');
+    }
+    logger.warn('DATABASE_URL is not set. Using in-memory ephemeral store.');
+    store = new MemoryStore();
   }
   const sources = createSourceRegistry();
   const sinks = createSinkRegistry(env);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Lead } from '../src/core/types.ts';
-import { openStore } from '../src/store/sqlite.ts';
+import { MemoryStore } from '../src/store/memory.ts';
 import { TEST_NOW } from './helpers.ts';
 
 function makeLead(overrides: Partial<Lead> = {}): Lead {
@@ -25,9 +25,9 @@ function makeLead(overrides: Partial<Lead> = {}): Lead {
   };
 }
 
-describe('sqlite store', () => {
+describe('store', () => {
   it('creates, updates and deletes sources', async () => {
-    const store = openStore(':memory:');
+    const store = new MemoryStore();
     const source = await store.createSource({
       kind: 'rss',
       title: 'Feed',
@@ -46,7 +46,7 @@ describe('sqlite store', () => {
   });
 
   it('deduplicates by fingerprint and title key', async () => {
-    const store = openStore(':memory:');
+    const store = new MemoryStore();
     const source = await store.createSource({ kind: 'rss', title: 'Feed' });
     const lead = makeLead({ sourceId: source.id });
 
@@ -65,7 +65,7 @@ describe('sqlite store', () => {
   });
 
   it('lists leads and computes stats', async () => {
-    const store = openStore(':memory:');
+    const store = new MemoryStore();
     const source = await store.createSource({ kind: 'rss', title: 'Feed' });
     await store.insertLead(makeLead({ sourceId: source.id, id: 'lead-new' }));
     await store.insertLead(
@@ -91,7 +91,7 @@ describe('sqlite store', () => {
   });
 
   it('records runs', async () => {
-    const store = openStore(':memory:');
+    const store = new MemoryStore();
     await store.recordRun({
       id: 'run-1',
       sourceId: 'source-1',
@@ -109,7 +109,7 @@ describe('sqlite store', () => {
   });
 
   it('filters leads by a normalized query', async () => {
-    const store = openStore(':memory:');
+    const store = new MemoryStore();
     const source = await store.createSource({ kind: 'rss', title: 'Feed' });
     await store.insertLead(makeLead({ sourceId: source.id, id: 'lead-1', title: 'Нужен сантехник' }));
     await store.insertLead(
@@ -129,7 +129,7 @@ describe('sqlite store', () => {
   });
 
   it('aggregates source health', async () => {
-    const store = openStore(':memory:');
+    const store = new MemoryStore();
     const source = await store.createSource({ kind: 'rss', title: 'Health feed' });
     const base = {
       sourceId: source.id,

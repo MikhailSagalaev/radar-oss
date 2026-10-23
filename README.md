@@ -14,7 +14,7 @@ Radar watches the sources you configure, normalizes new orders, removes duplicat
 
 Small teams and freelancers often pay for Telegram channels that resell the same public orders. The collection layer is not the moat; relevance, speed and routing are. Radar makes the collection layer free and replaceable:
 
-- one process, one SQLite file, no external queue;
+- one process, PostgreSQL 17 with pgvector, transactional outbox pattern;
 - rules-first filtering, optional LLM classification with your own key;
 - sources are adapters, not hard-coded scrapers;
 - data stays on your server.
@@ -43,22 +43,30 @@ Small teams and freelancers often pay for Telegram channels that resell the same
 
 ## Quick start
 
-Requirements: Node.js 22.12+ and pnpm 11.
+Requirements: Docker Compose (recommended) or Node.js 22.12+, pnpm 11, and PostgreSQL 17.
+
+### Running with Docker Compose (Recommended)
+
+```bash
+cp .env.example .env
+# Set RADAR_ADMIN_TOKEN and POSTGRES_PASSWORD in .env
+docker compose up -d --build
+```
+
+The database runs on PostgreSQL 17 with `pgvector`. Radar is available at `http://127.0.0.1:8787`.
+
+### Running Locally
 
 ```bash
 pnpm install
 cp .env.example .env
 pnpm build
 
-node bin/radar.js init
+# Run migrations
+node bin/radar.js migrate
 
-# RSS is the safest source to start with
-node bin/radar.js source add \
-  --kind rss \
-  --title "Example feed" \
-  --url "https://example.com/rss" \
-  --include "сантехник" \
-  --city "Ставрополь"
+# Load popular freelance presets (FL.ru, Habr Freelance, Kwork, Telegram)
+node bin/radar.js source presets --add
 
 node bin/radar.js poll
 node bin/radar.js leads
@@ -142,7 +150,8 @@ The dashboard shows one row per source on `/sources`: status, last run and 24-ho
 
 | Command | What it does |
 |---|---|
-| `radar init` | create the database and print next steps |
+| `radar migrate` | apply database migrations in PostgreSQL |
+| `radar init` | initialize database and print next steps |
 | `radar source add ...` | add a source |
 | `radar source list` | list sources |
 | `radar source enable <id>` / `disable` / `remove` | manage sources |
@@ -184,8 +193,9 @@ Authentication: `Authorization: Bearer <RADAR_ADMIN_TOKEN>` or `x-radar-token`. 
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `RADAR_DB_PATH` | `./data/radar.db` | SQLite file |
-| `RADAR_ADMIN_TOKEN` | unset | protects the API and dashboard |
+| `DATABASE_URL` | `postgres://radar:...@postgres:5432/radar` | PostgreSQL connection string |
+| `RADAR_HOST_PORT` | `8787` | HTTP port exposed on the host |
+| `RADAR_ADMIN_TOKEN` | unset | protects the API and dashboard (min 32 chars in production) |
 | `RADAR_USER_AGENT` | `RadarBot/0.3.0 ...` | sent to sources |
 | `RADAR_HTTP_TIMEOUT_MS` | `15000` | per-request timeout |
 | `RADAR_POLL_INTERVAL_SEC` | `300` | scheduler interval |

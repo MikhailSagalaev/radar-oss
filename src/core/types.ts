@@ -14,7 +14,6 @@ export interface Logger {
 export interface Env {
   NODE_ENV: 'development' | 'production' | 'test';
   DATABASE_URL?: string;
-  RADAR_DB_PATH: string;
   RADAR_ADMIN_TOKEN?: string;
   RADAR_HOST_PORT?: number;
   RADAR_USER_AGENT: string;

@@ -24,7 +24,6 @@ const booleanFromEnv = (defaultValue: boolean) =>
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   DATABASE_URL: optionalString,
-  RADAR_DB_PATH: z.string().min(1).default('./data/radar.db'),
   RADAR_ADMIN_TOKEN: optionalString,
   RADAR_HOST_PORT: z.coerce.number().int().positive().optional(),
   RADAR_USER_AGENT: z
