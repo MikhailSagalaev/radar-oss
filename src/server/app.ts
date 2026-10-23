@@ -495,9 +495,13 @@ export function createApp(runtime: Runtime): Hono {
     const rawType = typeof body.leadType === 'string' ? body.leadType.trim() : '';
     const type: LeadType = rawType === 'job' || rawType === 'gig' ? rawType : 'gig';
     const author = typeof body.author === 'string' ? body.author.trim() : undefined;
+    const category = typeof body.category === 'string' && body.category.trim() ? body.category.trim() : undefined;
     const city = typeof body.city === 'string' ? body.city.trim() : undefined;
     const budget = asNumber(body.budget);
     const currency = typeof body.currency === 'string' && body.currency.trim() ? body.currency.trim() : 'RUB';
+    const rawSkills = typeof body.skills === 'string' ? body.skills : '';
+    const skills = rawSkills ? rawSkills.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean) : undefined;
+    const isRemote = body.isRemote === 'false' ? false : true;
 
     if (!title && !text) return c.redirect('/submit');
 
@@ -521,10 +525,12 @@ export function createApp(runtime: Runtime): Hono {
       text: text || title,
       url: url || undefined,
       author: author || 'Web Submission',
+      category,
       city,
       budget,
       currency,
-      isRemote: true,
+      skills,
+      isRemote,
       externalId: url ? `url:${url}` : `manual:${Date.now()}`,
       raw: body,
     };
@@ -1105,11 +1111,14 @@ export function createApp(runtime: Runtime): Hono {
       text: text ?? title ?? '',
       url,
       author: asString(body.author) || 'Web Submission',
+      category: asString(body.category),
       city: asString(body.city),
       budget: asNumber(body.budget),
       currency: asString(body.currency) ?? 'RUB',
       skills: Array.isArray(body.skills)
-        ? (body.skills as string[]).filter((s) => typeof s === 'string')
+        ? (body.skills as string[]).map((s) => String(s).trim()).filter(Boolean)
+        : typeof body.skills === 'string'
+        ? (body.skills as string).split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean)
         : undefined,
       isRemote: typeof body.isRemote === 'boolean' ? body.isRemote : true,
       externalId: url ? `url:${url}` : `manual:${Date.now()}`,

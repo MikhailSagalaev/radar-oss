@@ -5,6 +5,7 @@ export interface LeadPreview {
   type: LeadType;
   title: string;
   author?: string;
+  category?: string;
   city?: string;
   budget?: number;
   salaryMax?: number;
@@ -167,11 +168,15 @@ export function extractPreviewFromHtml(html: string, url: string): LeadPreview {
       const posting = findJobPosting(data);
       if (posting) {
         const salary = extractSalary(posting.baseSalary);
+        const category =
+          String(posting.occupationalCategory || posting.industry || '').trim() ||
+          undefined;
         return {
           type: 'job',
           title: String(posting.title || posting.name || '').trim() || $('title').text().trim() || 'Вакансия',
           text: cleanHtmlText(String(posting.description || '')),
           author: extractCompany(posting.hiringOrganization) || undefined,
+          category,
           city: extractCity(posting.jobLocation) || undefined,
           isRemote: extractRemote(posting),
           budget: salary.budget,
@@ -221,11 +226,20 @@ export function extractPreviewFromHtml(html: string, url: string): LeadPreview {
     lowerTitle.includes('job') ||
     lowerTitle.includes('hiring');
 
+  const metaKeywords =
+    $('meta[name="keywords"]').attr('content') ||
+    $('meta[property="article:tag"]').toArray().map((el) => $(el).attr('content')).filter(Boolean).join(', ') ||
+    '';
+  const fallbackSkills = metaKeywords
+    ? metaKeywords.split(/[,;\n]+/).map((s) => s.trim()).filter((s) => s.length > 1 && s.length < 30).slice(0, 8)
+    : undefined;
+
   return {
     type: isJob ? 'job' : 'gig',
     title: cleanHtmlText(ogTitle) || 'Новый лид',
     text: cleanHtmlText(text),
     author: ogSite.trim() || undefined,
+    skills: fallbackSkills,
     url,
     isRemote: true,
   };

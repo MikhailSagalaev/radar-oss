@@ -406,9 +406,8 @@ a:hover { text-decoration: underline; }
   display: flex;
   gap: 20px;
   align-items: center;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 8px;
   width: 100%;
+  margin-bottom: 2px;
 }
 .type-tab {
   font-size: 13.5px;
@@ -416,26 +415,18 @@ a:hover { text-decoration: underline; }
   color: var(--muted);
   text-decoration: none;
   padding: 4px 0;
-  position: relative;
   transition: color 0.15s ease;
 }
 .type-tab:hover {
   color: var(--ink);
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 .type-tab.active {
   color: var(--ink);
   font-weight: 600;
-  text-decoration: none;
-}
-.type-tab.active::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -9px;
-  height: 2px;
-  background: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 .community-votes {
   display: flex;
@@ -670,10 +661,11 @@ legend {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
-  padding: 24px;
+  padding: 24px 24px 32px;
   display: grid;
   gap: 16px;
   margin-top: 16px;
+  margin-bottom: 48px;
 }
 .error-box {
   border: 1px solid var(--rose);
@@ -724,10 +716,39 @@ pre.token {
 [hidden] { display: none !important; }
 footer {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1.6;
   margin-top: auto;
-  padding-top: 48px;
+  padding-top: 56px;
+  padding-bottom: 40px;
   border-top: 1px solid var(--line);
+}
+.footer-wrap {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+.footer-brand {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: 13px;
+}
+.footer-nav {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.footer-nav a {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+.footer-nav a:hover {
+  color: var(--ink);
+  text-decoration: underline;
 }
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
@@ -785,7 +806,21 @@ function layout(input: {
   <div class="actions">${input.actions ?? ''}</div>
 </header>
 ${input.body}
-<footer>Данные не покидают ваш сервер · <a href="/health">health</a></footer>
+<footer>
+  <div class="footer-wrap">
+    <div>
+      <p class="footer-brand"><b>Open Radar</b> — открытый децентрализованный агрегатор заказов и вакансий.</p>
+      <p class="muted" style="margin:0">Свободное программное обеспечение. Лицензия Apache 2.0.</p>
+    </div>
+    <div class="footer-nav">
+      <a href="https://github.com/MikhailSagalaev/radar-oss" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="https://github.com/MikhailSagalaev/radar-oss/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Лицензия Apache 2.0</a>
+      <a href="/feed.rss">RSS фид</a>
+      <a href="/api/delta">S3 Delta Stream</a>
+      <a href="/health">Статус системы</a>
+    </div>
+  </div>
+</footer>
 </main>
 <dialog id="add-source-dialog" style="border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);padding:24px;max-width:480px;width:90vw;box-shadow:0 16px 40px rgba(0,0,0,0.18)">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
@@ -794,30 +829,25 @@ ${input.body}
   </div>
   <form method="post" action="/sources" style="display:grid;gap:14px">
     <div style="display:grid;gap:5px">
-      <label style="font-size:12px;color:var(--muted)">Тип источника</label>
+      <label style="font-size:12px;color:var(--muted)">Технологический протокол</label>
       <select name="kind" id="dlg-kind" style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit" onchange="
         const val = this.value;
         document.getElementById('dlg-url-grp').style.display = val === 'rss' ? 'grid' : 'none';
-        document.getElementById('dlg-kwork-grp').style.display = val === 'kwork' ? 'grid' : 'none';
         document.getElementById('dlg-tg-grp').style.display = val === 'telegram' ? 'grid' : 'none';
       ">
         <option value="rss">RSS / Atom фид</option>
-        <option value="kwork">Kwork категория</option>
-        <option value="telegram">Telegram канал</option>
         <option value="webhook">Входящий Webhook</option>
+        <option value="telegram">Telegram канал / паблик</option>
+        <option value="imap">Email ящик (IMAP)</option>
       </select>
     </div>
     <div style="display:grid;gap:5px">
-      <label style="font-size:12px;color:var(--muted)">Название</label>
-      <input name="title" required placeholder="Например: FL.ru — Разработка" style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit">
+      <label style="font-size:12px;color:var(--muted)">Название источника</label>
+      <input name="title" required placeholder="Например: Мой блог или Закрытая рассылка" style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit">
     </div>
     <div id="dlg-url-grp" style="display:grid;gap:5px">
       <label style="font-size:12px;color:var(--muted)">URL фида</label>
-      <input name="url" placeholder="https://www.fl.ru/rss/all.xml" style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit">
-    </div>
-    <div id="dlg-kwork-grp" style="display:none;gap:5px">
-      <label style="font-size:12px;color:var(--muted)">ID категории Kwork</label>
-      <input name="categoryId" placeholder="11" style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit">
+      <input name="url" placeholder="https://example.com/feed.xml" style="padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit">
     </div>
     <div id="dlg-tg-grp" style="display:none;gap:5px">
       <label style="font-size:12px;color:var(--muted)">Канал Telegram</label>
@@ -1144,8 +1174,7 @@ window.addEventListener('keydown', (e) => {
     version,
     active: 'leads',
     body,
-    actions:
-      '<a class="btn" href="/submit">Добавить по ссылке</a><button class="btn ghost" type="button" onclick="document.getElementById(\'add-source-dialog\')?.showModal()">Добавить источник</button><button class="btn" data-poll="/api/poll">Опросить все</button>',
+    actions: '<a class="btn" href="/submit">Добавить по ссылке</a>',
     script: searchHotkeyScript,
   });
 }
@@ -1721,8 +1750,21 @@ export function renderSubmitPage(data: SubmitPageData): string {
         <input id="author-input" name="author" placeholder="Компания или заказчик">
       </div>
       <div class="field">
+        <label for="category-input">Категория</label>
+        <input id="category-input" name="category" placeholder="Например: Разработка и IT, Дизайн, Маркетинг...">
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="field">
         <label for="city-input">Город / Локация</label>
         <input id="city-input" name="city" placeholder="Москва, Ставрополь или Удалённо">
+      </div>
+      <div class="field" style="display:flex;align-items:center;padding-top:20px">
+        <label class="radio-label" style="font-size:13px;cursor:pointer">
+          <input type="checkbox" id="is-remote-input" name="isRemote" value="true" checked style="accent-color:var(--ink);width:16px;height:16px">
+          <span>Удалённая работа</span>
+        </label>
       </div>
     </div>
 
@@ -1738,13 +1780,18 @@ export function renderSubmitPage(data: SubmitPageData): string {
     </div>
 
     <div class="field">
+      <label for="skills-input">Навыки и стек</label>
+      <input id="skills-input" name="skills" placeholder="Например: TypeScript, React, Node.js, PostgreSQL (через запятую)">
+    </div>
+
+    <div class="field">
       <label for="text-input">Текст / Описание</label>
       <textarea id="text-input" name="text" rows="8" required placeholder="Описание вакансии или проекта..." style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit;font-size:13px;line-height:1.5;resize:vertical"></textarea>
     </div>
 
-    <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding-top:16px;margin-top:12px">
       <div id="submit-status" style="font-size:12px;color:var(--muted)"></div>
-      <button id="submit-btn" type="button" class="btn" style="padding:9px 20px">Опубликовать в Open Radar</button>
+      <button id="submit-btn" type="button" class="btn" style="padding:10px 24px;font-size:13.5px">Опубликовать в Open Radar</button>
     </div>
   </div>
 </form>`;
@@ -1756,9 +1803,12 @@ export function renderSubmitPage(data: SubmitPageData): string {
   const fetchStatus = document.getElementById('fetch-status');
   const titleInput = document.getElementById('title-input');
   const authorInput = document.getElementById('author-input');
+  const categoryInput = document.getElementById('category-input');
   const cityInput = document.getElementById('city-input');
+  const isRemoteInput = document.getElementById('is-remote-input');
   const budgetInput = document.getElementById('budget-input');
   const currencyInput = document.getElementById('currency-input');
+  const skillsInput = document.getElementById('skills-input');
   const textInput = document.getElementById('text-input');
   const typeJob = document.getElementById('type-job');
   const typeGig = document.getElementById('type-gig');
@@ -1803,9 +1853,12 @@ export function renderSubmitPage(data: SubmitPageData): string {
       }
       if (p.title) titleInput.value = p.title;
       if (p.author || p.company) authorInput.value = p.author || p.company;
+      if (p.category) categoryInput.value = p.category;
       if (p.city) cityInput.value = p.city;
+      if (typeof p.isRemote === 'boolean') isRemoteInput.checked = p.isRemote;
       if (p.budget !== undefined && p.budget !== null) budgetInput.value = p.budget;
       if (p.currency) currencyInput.value = p.currency;
+      if (Array.isArray(p.skills) && p.skills.length) skillsInput.value = p.skills.join(', ');
       if (p.text) textInput.value = p.text;
 
       fetchStatus.textContent = 'Данные успешно загружены.';
@@ -1872,9 +1925,12 @@ export function renderSubmitPage(data: SubmitPageData): string {
       text,
       type: typeJob.checked ? 'job' : 'gig',
       author: authorInput.value.trim() || undefined,
+      category: categoryInput.value.trim() || undefined,
       city: cityInput.value.trim() || undefined,
       budget: budgetInput.value ? Number(budgetInput.value) : undefined,
       currency: currencyInput.value.trim() || 'RUB',
+      skills: skillsInput.value.trim() ? skillsInput.value.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean) : undefined,
+      isRemote: isRemoteInput.checked,
     };
 
     try {
