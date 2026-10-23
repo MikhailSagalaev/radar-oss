@@ -230,32 +230,34 @@ a:hover { text-decoration: underline; }
 }
 .metric span { font-size: 12px; color: var(--muted); margin-top: 2px; display: block; }
 .inline { display: inline; }
-.chips { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.chips { display: flex; gap: 14px; flex-wrap: wrap; min-width: 0; align-items: center; }
 .chip {
   font-size: 12px;
   font-weight: 500;
-  border: 1px solid var(--line);
-  border-radius: 9999px;
-  padding: 4px 12px;
+  border: none;
+  border-radius: 0;
+  padding: 2px 0;
   text-decoration: none;
   color: var(--muted);
   background: transparent;
   white-space: nowrap;
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: color 0.15s ease;
 }
 .chip:hover {
   color: var(--ink);
-  border-color: var(--line-strong);
-  background: var(--surface-hover);
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: transparent;
 }
-.chip:active { transform: scale(0.96); }
+.chip:active { transform: none; }
 .chip.active {
-  background: var(--ink);
-  color: var(--bg);
-  border-color: var(--ink);
+  background: transparent;
+  color: var(--ink);
+  border: none;
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  box-shadow: none;
 }
 .search { display: flex; gap: 6px; margin-left: auto; }
 .search input {
@@ -401,32 +403,39 @@ a:hover { text-decoration: underline; }
   font-weight: 600;
 }
 .type-tabs {
-  display: inline-flex;
-  gap: 2px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 3px;
-  width: fit-content;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+  width: 100%;
 }
 .type-tab {
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 500;
   color: var(--muted);
   text-decoration: none;
-  padding: 5px 14px;
-  border-radius: 6px;
-  transition: all 0.15s ease;
+  padding: 4px 0;
+  position: relative;
+  transition: color 0.15s ease;
 }
 .type-tab:hover {
   color: var(--ink);
   text-decoration: none;
 }
 .type-tab.active {
-  background: var(--bg);
   color: var(--ink);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  text-decoration: none;
+}
+.type-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -9px;
+  height: 2px;
+  background: var(--ink);
 }
 .community-votes {
   display: flex;
@@ -465,27 +474,27 @@ a:hover { text-decoration: underline; }
   border-color: var(--rose);
   color: var(--rose);
 }
-.tag-ok {
-  background: rgba(34, 197, 94, 0.1);
-  color: #16a34a;
-  border-color: rgba(34, 197, 94, 0.25);
+.text-warn {
+  color: var(--rose);
   font-weight: 500;
 }
-.tag-warn {
-  background: rgba(234, 88, 12, 0.1);
-  color: #ea580c;
-  border-color: rgba(234, 88, 12, 0.25);
+.text-ok {
+  color: #16a34a;
   font-weight: 500;
+}
+.row-sub {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 4px;
 }
 .caution-banner {
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  color: #dc2626;
-  border-radius: 8px;
-  padding: 10px 14px;
+  border-left: 2px solid var(--rose);
+  padding: 8px 12px;
+  color: var(--rose);
   font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 20px;
+  margin: 16px 0;
+  background: transparent;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -932,36 +941,37 @@ function leadRow(lead: Lead, source?: SourceRecord): string {
     .filter(Boolean)
     .join(' · ');
 
-  const badges: string[] = [];
+  const signals: string[] = [];
   if (lead.score >= 80) {
-    badges.push('<span class="tag tag-ok">Высокий рейтинг</span>');
+    signals.push('высокий рейтинг');
   }
   if (lead.normalizedUsdMin || lead.budget || lead.rawSalary) {
-    badges.push('<span class="tag">Вилка в рынке</span>');
+    signals.push('вилка в рынке');
   }
   if (lead.reasons?.some((r) => r.includes('direct') || r.includes('employer')) || (lead.author && !lead.author.toLowerCase().includes('агентство'))) {
-    badges.push('<span class="tag">Прямой заказчик</span>');
+    signals.push('прямой заказчик');
   }
   if ((lead.votes_scam ?? 0) >= 1 && lead.status !== 'rejected') {
-    badges.push('<span class="tag tag-warn">Возможен скам</span>');
+    signals.push('<span class="text-warn">возможен скам</span>');
   }
 
-  const badgesHtml = badges.length
-    ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${badges.join('')}</div>`
-    : '';
+  const details: string[] = [];
+  if (signals.length) {
+    details.push(signals.join(', '));
+  }
+  if (lead.skills?.length) {
+    details.push(escapeHtml(lead.skills.slice(0, 5).join(', ')));
+  }
 
-  const skillsChips = lead.skills?.length
-    ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">
-        ${lead.skills.slice(0, 4).map((s) => `<span class="tag" style="font-size:10.5px;padding:1px 6px">${escapeHtml(s)}</span>`).join('')}
-      </div>`
+  const subLine = details.length
+    ? `<div class="row-sub">${details.join(' · ')}</div>`
     : '';
 
   return `<a class="row" href="/leads/${escapeHtml(lead.id)}">
     <div>
       <div class="row-title">${escapeHtml(leadTitle(lead))}</div>
       <div class="row-meta">${escapeHtml(meta)}</div>
-      ${badgesHtml}
-      ${skillsChips}
+      ${subLine}
     </div>
     <div class="row-side">
       <span class="score">${lead.score}</span>
@@ -1178,10 +1188,12 @@ document.getElementById('copy-lead')?.addEventListener('click', async (event) =>
           ${aiConfidence ? `<span class="muted small">${Math.round(Number(aiConfidence) * 100)}% совпадение</span>` : ''}
         </div>
         ${aiSummary ? `<p style="font-weight:600;margin:0 0 10px">${escapeHtml(aiSummary)}</p>` : ''}
-        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-          ${aiCategory ? `<span class="tag">Категория: <b>${escapeHtml(aiCategory)}</b></span>` : ''}
-          ${aiUrgency ? `<span class="tag">Срочность: <b>${escapeHtml(aiUrgency)}</b></span>` : ''}
-          ${aiSkills ? aiSkills.split(',').map((s) => `<span class="tag">${escapeHtml(s.trim())}</span>`).join('') : ''}
+        <div class="muted small" style="margin-top:6px;line-height:1.5">
+          ${[
+            aiCategory ? `Категория: <b style="color:var(--ink)">${escapeHtml(aiCategory)}</b>` : '',
+            aiUrgency ? `Срочность: <b style="color:var(--ink)">${escapeHtml(aiUrgency)}</b>` : '',
+            aiSkills ? `Стек: ${escapeHtml(aiSkills.split(',').map((s) => s.trim()).join(', '))}` : '',
+          ].filter(Boolean).join(' · ')}
         </div>
       </div>`
     : '';
@@ -1263,9 +1275,9 @@ ${cautionBanner}
     </dl>
     ${lead.skills?.length ? `
       <h2 style="margin-top:20px">Навыки и стек</h2>
-      <div style="display:flex;gap:4px;flex-wrap:wrap">
-        ${lead.skills.map((s) => `<span class="tag">${escapeHtml(s)}</span>`).join('')}
-      </div>` : ''}
+      <p class="small muted" style="line-height:1.6;margin-top:6px">
+        ${escapeHtml(lead.skills.join(', '))}
+      </p>` : ''}
   </aside>
 </div>`;
 
