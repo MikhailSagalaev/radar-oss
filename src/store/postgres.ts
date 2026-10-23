@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { randomUUID } from 'node:crypto';
 import { recalculateVoteScoreAndStatus } from '../core/rules.ts';
+import { normalizeTechTokens } from '../core/text.ts';
 import type {
   Lead,
   LeadStatus,
@@ -211,13 +212,15 @@ export class PostgresStore implements Store {
           author, city, budget, currency, category, skills_json, is_remote,
           metadata_json, published_at, fingerprint, title_key, status, score,
           reasons_json, created_at, delivered_at,
-          votes_up, votes_down, votes_scam, votes_closed, quality_score
+          votes_up, votes_down, votes_scam, votes_closed, quality_score,
+          raw_salary, payment_period, normalized_usd_min, normalized_usd_max
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7,
           $8, $9, $10, $11, $12, $13::jsonb, $14,
           $15::jsonb, $16, $17, $18, $19, $20,
           $21::jsonb, $22, $23,
-          $24, $25, $26, $27, $28
+          $24, $25, $26, $27, $28,
+          $29, $30, $31, $32
         ) ON CONFLICT (fingerprint) DO NOTHING`,
         [
           lead.id,
@@ -248,6 +251,10 @@ export class PostgresStore implements Store {
           lead.votes_scam ?? 0,
           lead.votes_closed ?? 0,
           lead.score,
+          lead.rawSalary ?? null,
+          lead.paymentPeriod ?? 'fixed',
+          lead.normalizedUsdMin ?? null,
+          lead.normalizedUsdMax ?? null,
         ]
       );
 
@@ -303,6 +310,7 @@ export class PostgresStore implements Store {
     leadId: string,
     signal: 'useful' | 'junk' | 'scam' | 'closed',
     weight = 1.0,
+    subnet?: string,
   ): Promise<{
     votes_up: number;
     votes_down: number;
@@ -318,6 +326,27 @@ export class PostgresStore implements Store {
       if (!row) {
         await client.query('ROLLBACK');
         throw new Error(`Lead not found: ${leadId}`);
+      }
+
+      let meta = typeof row.metadata_json === 'object' && row.metadata_json !== null
+        ? row.metadata_json
+        : JSON.parse(row.metadata_json || '{}');
+
+      // Anti-snipe: single /24 subnet can only strike scam once
+      if (signal === 'scam' && subnet) {
+        const scamSubnets: string[] = Array.isArray(meta.scam_subnets) ? meta.scam_subnets : [];
+        if (scamSubnets.includes(subnet)) {
+          await client.query('ROLLBACK');
+          return {
+            votes_up: Number(row.votes_up) || 0,
+            votes_down: Number(row.votes_down) || 0,
+            votes_scam: Number(row.votes_scam) || 0,
+            votes_closed: Number(row.votes_closed) || 0,
+            score: Number(row.score) || 0,
+          };
+        }
+        scamSubnets.push(subnet);
+        meta = { ...meta, scam_subnets: scamSubnets };
       }
 
       const w = typeof weight === 'number' && Number.isFinite(weight) && weight > 0 ? weight : 1.0;
@@ -355,9 +384,10 @@ export class PostgresStore implements Store {
              votes_closed = $4,
              score = $5,
              status = $6,
-             quality_score = COALESCE(quality_score, $7)
-         WHERE id = $8`,
-        [votes_up, votes_down, votes_scam, votes_closed, newScore, newStatus, baseScore, leadId],
+             quality_score = COALESCE(quality_score, $7),
+             metadata_json = $8::jsonb
+         WHERE id = $9`,
+        [votes_up, votes_down, votes_scam, votes_closed, newScore, newStatus, baseScore, JSON.stringify(meta), leadId],
       );
 
       await client.query(
@@ -402,15 +432,18 @@ export class PostgresStore implements Store {
     }
     if (options.query && options.query.trim().length > 0) {
       const trimmed = options.query.trim();
-      if (trimmed.length >= 3) {
+      const normQuery = normalizeTechTokens(trimmed);
+      if (trimmed.length >= 2) {
         conditions.push(`(
-          to_tsvector('russian', title || ' ' || text) @@ websearch_to_tsquery('russian', $${idx})
+          (to_tsvector('russian', title || ' ' || text) || to_tsvector('english', title || ' ' || text))
+          @@ (websearch_to_tsquery('russian', $${idx}) || websearch_to_tsquery('english', $${idx}))
           OR title ILIKE $${idx + 1}
           OR text ILIKE $${idx + 1}
           OR city ILIKE $${idx + 1}
           OR category ILIKE $${idx + 1}
+          OR skills_json::text ILIKE $${idx + 1}
         )`);
-        params.push(trimmed);
+        params.push(normQuery);
         params.push(`%${trimmed}%`);
         idx += 2;
       } else {
@@ -420,7 +453,8 @@ export class PostgresStore implements Store {
           text ILIKE $${idx} OR
           city ILIKE $${idx} OR
           category ILIKE $${idx} OR
-          title_key ILIKE $${idx}
+          title_key ILIKE $${idx} OR
+          skills_json::text ILIKE $${idx}
         )`);
         params.push(q);
         idx++;
@@ -595,6 +629,10 @@ export class PostgresStore implements Store {
       createdAt: new Date(r.created_at).toISOString(),
       deliveredAt: r.delivered_at ? new Date(r.delivered_at).toISOString() : undefined,
       type: r.type === 'job' ? 'job' : 'gig',
+      rawSalary: r.raw_salary || undefined,
+      paymentPeriod: r.payment_period || undefined,
+      normalizedUsdMin: r.normalized_usd_min !== null && r.normalized_usd_min !== undefined ? Number(r.normalized_usd_min) : undefined,
+      normalizedUsdMax: r.normalized_usd_max !== null && r.normalized_usd_max !== undefined ? Number(r.normalized_usd_max) : undefined,
       votes_up: r.votes_up !== null && r.votes_up !== undefined ? Number(r.votes_up) : 0,
       votes_down: r.votes_down !== null && r.votes_down !== undefined ? Number(r.votes_down) : 0,
       votes_scam: r.votes_scam !== null && r.votes_scam !== undefined ? Number(r.votes_scam) : 0,

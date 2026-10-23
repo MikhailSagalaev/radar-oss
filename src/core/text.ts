@@ -124,4 +124,26 @@ export function slugify(input: string): string {
     .slice(0, 48);
 }
 
-export { sanitizePrivacy } from './privacy.ts';
+/**
+ * Normalizes IT tech tokens with special characters (C++, C#, .NET, 1C, etc.)
+ * so that full-text search tokenizers (to_tsvector) and morphology stemmers
+ * do not strip punctuation or discard them as single letters.
+ */
+export function normalizeTechTokens(input: string): string {
+  if (!input) return '';
+  return input
+    .replace(/(^|[^a-zA-Z0-9_])c\+\+(?=[^a-zA-Z0-9_]|$)/gi, '$1cpp_tech')
+    .replace(/(^|[^a-zA-Z0-9_])c#(?=[^a-zA-Z0-9_]|$)/gi, '$1csharp_tech')
+    .replace(/(^|[^a-zA-Z0-9_])f#(?=[^a-zA-Z0-9_]|$)/gi, '$1fsharp_tech')
+    .replace(/(^|[^a-zA-Z0-9_])\.net(?=[^a-zA-Z0-9_]|$)/gi, '$1dotnet_tech')
+    .replace(/(^|[^a-zA-Z0-9_])dot\s*net(?=[^a-zA-Z0-9_]|$)/gi, '$1dotnet_tech')
+    .replace(/(^|[^a-zA-Z0-9_])1[сc](?=[^a-zA-Z0-9_]|$)/gi, '$1onec_tech')
+    .replace(/(^|[^a-zA-Z0-9_])node(?:\.js|js)(?=[^a-zA-Z0-9_]|$)/gi, '$1nodejs_tech')
+    .replace(/(^|[^a-zA-Z0-9_])next(?:\.js|js)(?=[^a-zA-Z0-9_]|$)/gi, '$1nextjs_tech')
+    .replace(/(^|[^a-zA-Z0-9_])nuxt(?:\.js|js)(?=[^a-zA-Z0-9_]|$)/gi, '$1nuxtjs_tech')
+    .replace(/(^|[^a-zA-Z0-9_])vue(?:\.js|js)(?=[^a-zA-Z0-9_]|$)/gi, '$1vuejs_tech')
+    .replace(/(^|[^a-zA-Z0-9_])nest(?:\.js|js)(?=[^a-zA-Z0-9_]|$)/gi, '$1nestjs_tech')
+    .replace(/(^|[^a-zA-Z0-9_])golang(?=[^a-zA-Z0-9_]|$)/gi, '$1golang_tech');
+}
+
+export { sanitizePrivacy, extractSubnet24 } from './privacy.ts';

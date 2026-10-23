@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { escapeHtml } from '../core/text.ts';
+import { escapeHtml, extractSubnet24 } from '../core/text.ts';
+import { renderRssFeed } from './feed.ts';
 import type { LeadStatus, LeadType, RawLead, SourceConfig, SourceKind, SourceRecord, VoteSignal } from '../core/types.ts';
 import { pollAll, pollSource } from '../pipeline/poll.ts';
 import { ingestRawLead, type IngestDeps } from '../pipeline/ingest.ts';
@@ -682,6 +683,10 @@ export function createApp(runtime: Runtime): Hono {
     const validStatuses: LeadStatus[] = ['new', 'interesting', 'applied', 'in_work', 'rejected', 'delivered', 'failed'];
     if (validStatuses.includes(rawStatus as LeadStatus)) {
       await runtime.store.updateLeadStatus(id, rawStatus as LeadStatus);
+      // Implicit positive community signal (+0.25 useful)
+      if (['interesting', 'applied', 'in_work'].includes(rawStatus)) {
+        await runtime.store.recordVote(id, 'useful', 0.25).catch(() => {});
+      }
     }
     return c.redirect(`/leads/${id}`);
   });
@@ -719,10 +724,15 @@ export function createApp(runtime: Runtime): Hono {
       return c.redirect(`/leads/${id}`);
     }
 
+    const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '127.0.0.1';
+    const subnet = extractSubnet24(clientIp);
+
     try {
       const result = await runtime.store.recordVote(
         id,
         signal as 'useful' | 'junk' | 'scam' | 'closed',
+        1.0,
+        subnet,
       );
       if (contentType.includes('application/json') || c.req.header('accept')?.includes('application/json')) {
         return c.json({ ok: true, id, ...result });
@@ -748,6 +758,10 @@ export function createApp(runtime: Runtime): Hono {
     const scoreDelta = typeof body?.scoreDelta === 'number' ? body.scoreDelta : undefined;
     if (!status) return c.json({ error: 'status_required' }, 400);
     await runtime.store.updateLeadStatus(id, status, undefined, scoreDelta);
+    // Implicit positive community signal (+0.25 useful) when moved to funnel without manual delta
+    if (typeof scoreDelta !== 'number' && ['interesting', 'applied', 'in_work'].includes(status)) {
+      await runtime.store.recordVote(id, 'useful', 0.25).catch(() => {});
+    }
     return c.json({ ok: true, id, status });
   });
 
@@ -774,11 +788,15 @@ export function createApp(runtime: Runtime): Hono {
       weight = Number((rep * ageFactor).toFixed(2));
     }
 
+    const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '127.0.0.1';
+    const subnet = extractSubnet24(clientIp);
+
     try {
       const result = await runtime.store.recordVote(
         id,
         signal as 'useful' | 'junk' | 'scam' | 'closed',
         weight,
+        subnet,
       );
       return c.json({ ok: true, id, ...result });
     } catch (err) {
@@ -958,6 +976,90 @@ export function createApp(runtime: Runtime): Hono {
       outcomes.push(await ingestRawLead(raw, source, deps(runtime)));
     }
     return c.json({ sourceId: source.id, accepted: outcomes.length, outcomes });
+  });
+
+  const serveFeed = async (c: Context) => {
+    if (!await canRead(c, runtime)) return c.text('Unauthorized', 401);
+    const q = (c.req.query('q') ?? '').trim();
+    const rawType = (c.req.query('type') ?? '').trim();
+    const type: LeadType | undefined = rawType === 'job' || rawType === 'gig' ? rawType : undefined;
+    const rawStatus = (c.req.query('status') ?? '').trim();
+    const status = ['new', 'interesting', 'applied', 'in_work', 'delivered'].includes(rawStatus)
+      ? (rawStatus as LeadStatus)
+      : undefined;
+
+    const leads = await runtime.store.listLeads({
+      limit: 50,
+      query: q || undefined,
+      type,
+      status,
+    });
+
+    const host = c.req.header('host') || '127.0.0.1:8787';
+    const proto = c.req.header('x-forwarded-proto') || 'http';
+    const baseUrl = `${proto}://${host}`;
+    const feedUrl = `${baseUrl}${c.req.url}`;
+    const feedTitle = q ? `Open Radar — Поиск: ${q}` : 'Open Radar — Свежие заказы и вакансии';
+
+    const xml = renderRssFeed({
+      leads,
+      title: feedTitle,
+      baseUrl,
+      feedUrl,
+    });
+
+    return c.text(xml, 200, {
+      'content-type': 'application/rss+xml; charset=utf-8',
+    });
+  };
+
+  app.get('/feed.rss', serveFeed);
+  app.get('/feed.xml', serveFeed);
+  app.get('/api/feed.rss', serveFeed);
+
+  app.get('/api/delta', async (c) => {
+    if (!await canRead(c, runtime)) return c.json({ error: 'unauthorized' }, 401);
+    const since = c.req.query('since') || new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const limit = Math.max(1, Math.min(Number(c.req.query('limit') ?? 200) || 200, 1000));
+    const allLeads = await runtime.store.listLeads({ limit: 500 });
+    const delta = allLeads
+      .filter((lead) => lead.createdAt >= since)
+      .slice(0, limit)
+      .map((lead) => ({
+        id: lead.id,
+        type: lead.type,
+        title: lead.title,
+        text: lead.text.slice(0, 1500),
+        url: lead.url,
+        budget: lead.budget,
+        currency: lead.currency,
+        paymentPeriod: lead.paymentPeriod,
+        normalizedUsdMin: lead.normalizedUsdMin,
+        normalizedUsdMax: lead.normalizedUsdMax,
+        city: lead.city,
+        skills: lead.skills,
+        isRemote: lead.isRemote,
+        score: lead.score,
+        status: lead.status,
+        votes: {
+          up: lead.votes_up ?? 0,
+          down: lead.votes_down ?? 0,
+          scam: lead.votes_scam ?? 0,
+          closed: lead.votes_closed ?? 0,
+        },
+        createdAt: lead.createdAt,
+      }));
+
+    if (c.req.query('format') === 'ndjson' || c.req.header('accept')?.includes('application/x-ndjson')) {
+      const ndjson = delta.map((item) => JSON.stringify(item)).join('\n');
+      return c.text(ndjson, 200, { 'content-type': 'application/x-ndjson; charset=utf-8' });
+    }
+
+    return c.json({
+      since,
+      count: delta.length,
+      items: delta,
+    });
   });
 
   return app;

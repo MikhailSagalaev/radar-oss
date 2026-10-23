@@ -1,5 +1,6 @@
 import { cleanTitle, extractBudget, extractCity } from './extract.ts';
 import { fingerprintOf, titleKeyOf } from './fingerprint.ts';
+import { normalizeSalary } from './salary.ts';
 import { toPlainText } from './text.ts';
 import type { RawLead, SourceRecord } from './types.ts';
 import { canonicalizeUrl, isHttpUrl } from './url.ts';
@@ -43,6 +44,14 @@ export function prepareRawLead(
     typeof source.config.city === 'string' ? source.config.city.trim() : '';
   const city = explicitCity || extractedCity || configuredCity || undefined;
 
+  const salaryInfo = normalizeSalary({
+    text: `${title}\n${normalizedText}`,
+    rawSalary: raw.rawSalary,
+    budget,
+    currency: raw.currency,
+    type: raw.type,
+  });
+
   const publishedAtDate = parsePublishedAt(raw.publishedAt, now);
   const titleKey = titleKeyOf(title);
   const fingerprint = fingerprintOf({ canonicalUrl, title, text: normalizedText });
@@ -54,6 +63,11 @@ export function prepareRawLead(
     url: canonicalUrl ?? safeHttpUrl,
     canonicalUrl,
     budget,
+    currency: salaryInfo.currency,
+    paymentPeriod: salaryInfo.paymentPeriod,
+    rawSalary: salaryInfo.rawSalary,
+    normalizedUsdMin: salaryInfo.normalizedUsdMin,
+    normalizedUsdMax: salaryInfo.normalizedUsdMax,
     city,
     publishedAt: publishedAtDate.toISOString(),
     publishedAtDate,

@@ -80,6 +80,10 @@ export interface RawLead {
   city?: string;
   budget?: number;
   currency?: string;
+  paymentPeriod?: 'monthly' | 'hourly' | 'fixed';
+  rawSalary?: string;
+  normalizedUsdMin?: number;
+  normalizedUsdMax?: number;
   category?: string;
   skills?: string[];
   isRemote?: boolean;

@@ -465,6 +465,31 @@ a:hover { text-decoration: underline; }
   border-color: var(--rose);
   color: var(--rose);
 }
+.tag-ok {
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+  border-color: rgba(34, 197, 94, 0.25);
+  font-weight: 500;
+}
+.tag-warn {
+  background: rgba(234, 88, 12, 0.1);
+  color: #ea580c;
+  border-color: rgba(234, 88, 12, 0.25);
+  font-weight: 500;
+}
+.caution-banner {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #dc2626;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .btn {
   display: inline-flex;
   align-items: center;
@@ -871,14 +896,32 @@ function leadRow(lead: Lead, source?: SourceRecord): string {
     source?.title,
     lead.category,
     lead.city ?? (lead.isRemote !== false ? 'Удаленно' : undefined),
-    typeof lead.budget === 'number' ? formatBudget(lead.budget) : undefined,
+    lead.rawSalary || (typeof lead.budget === 'number' ? formatBudget(lead.budget) : undefined),
     formatRelative(lead.createdAt),
   ]
     .filter(Boolean)
     .join(' · ');
 
+  const badges: string[] = [];
+  if (lead.score >= 80) {
+    badges.push('<span class="tag tag-ok">Высокий рейтинг</span>');
+  }
+  if (lead.normalizedUsdMin || lead.budget || lead.rawSalary) {
+    badges.push('<span class="tag">Вилка в рынке</span>');
+  }
+  if (lead.reasons?.some((r) => r.includes('direct') || r.includes('employer')) || (lead.author && !lead.author.toLowerCase().includes('агентство'))) {
+    badges.push('<span class="tag">Прямой заказчик</span>');
+  }
+  if ((lead.votes_scam ?? 0) >= 1 && lead.status !== 'rejected') {
+    badges.push('<span class="tag tag-warn">Возможен скам</span>');
+  }
+
+  const badgesHtml = badges.length
+    ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${badges.join('')}</div>`
+    : '';
+
   const skillsChips = lead.skills?.length
-    ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
+    ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">
         ${lead.skills.slice(0, 4).map((s) => `<span class="tag" style="font-size:10.5px;padding:1px 6px">${escapeHtml(s)}</span>`).join('')}
       </div>`
     : '';
@@ -887,6 +930,7 @@ function leadRow(lead: Lead, source?: SourceRecord): string {
     <div>
       <div class="row-title">${escapeHtml(leadTitle(lead))}</div>
       <div class="row-meta">${escapeHtml(meta)}</div>
+      ${badgesHtml}
       ${skillsChips}
     </div>
     <div class="row-side">
@@ -983,6 +1027,13 @@ export function renderLeadsPage(data: LeadsPageData): string {
     return suffix ? `/?${suffix}` : '/';
   };
 
+  const rssParams = new URLSearchParams();
+  if (type) rssParams.set('type', type);
+  if (status) rssParams.set('status', status);
+  if (query) rssParams.set('q', query);
+  const rssSuffix = rssParams.toString();
+  const rssHref = rssSuffix ? `/feed.rss?${rssSuffix}` : '/feed.rss';
+
   const tabs = typeTabs
     .map(
       (item) =>
@@ -1019,8 +1070,9 @@ export function renderLeadsPage(data: LeadsPageData): string {
     ${type ? `<input type="hidden" name="type" value="${escapeHtml(type)}">` : ''}
     ${status ? `<input type="hidden" name="status" value="${escapeHtml(status)}">` : ''}
     <div class="search-bar">
-      <input name="q" id="search-input" value="${escapeHtml(query)}" placeholder="Поиск по задачам, навыкам, категориям или городам... (нажмите / для фокуса)" aria-label="Поиск по заказам">
+      <input name="q" id="search-input" value="${escapeHtml(query)}" placeholder="Поиск по задачам, навыкам (C++, C#, .NET, Python), городам... (нажмите / для фокуса)" aria-label="Поиск по заказам">
       <button class="btn" type="submit">Найти</button>
+      <a class="btn ghost" href="${escapeHtml(rssHref)}" target="_blank" rel="noopener" title="RSS лента для этого поиска">RSS</a>
     </div>
   </form>
   <div class="chips">${chips}</div>
@@ -1106,6 +1158,19 @@ document.getElementById('copy-lead')?.addEventListener('click', async (event) =>
 
   const cleanUrl = safeHttpUrl(lead.url);
 
+  const cautionBanner = ((lead.votes_scam ?? 0) >= 1 && lead.status !== 'rejected')
+    ? `<div class="caution-banner">
+        Внимание: участники сообщества отметили этот заказ как подозрительный. Тщательно проверяйте заказчика перед началом работы.
+      </div>`
+    : '';
+
+  const salaryDisplay = lead.rawSalary
+    ? escapeHtml(lead.rawSalary)
+    : formatBudget(lead.budget);
+  const usdEstimate = lead.normalizedUsdMin
+    ? ` <span class="muted small">(≈ $${lead.normalizedUsdMin}${lead.normalizedUsdMax && lead.normalizedUsdMax !== lead.normalizedUsdMin ? `–$${lead.normalizedUsdMax}` : ''})</span>`
+    : '';
+
   const body = `
 <a class="back" href="/">Все заказы</a>
 <div class="page-head">
@@ -1142,6 +1207,8 @@ document.getElementById('copy-lead')?.addEventListener('click', async (event) =>
   </form>
 </div>
 
+${cautionBanner}
+
 <div class="detail-grid">
   <section>
     ${aiBox}
@@ -1158,7 +1225,7 @@ document.getElementById('copy-lead')?.addEventListener('click', async (event) =>
       ${lead.category ? `<div><dt>Категория</dt><dd><b>${escapeHtml(lead.category)}</b></dd></div>` : ''}
       <div><dt>Локация</dt><dd>${escapeHtml(lead.city ?? (lead.isRemote !== false ? 'Удалённо' : '—'))}</dd></div>
       <div><dt>Формат</dt><dd>${lead.isRemote !== false ? 'Удалённая работа' : 'На объекте / Офлайн'}</dd></div>
-      <div><dt>Бюджет</dt><dd>${formatBudget(lead.budget)}</dd></div>
+      <div><dt>Бюджет</dt><dd>${salaryDisplay}${usdEstimate}</dd></div>
       <div><dt>Скор</dt><dd>${lead.score}</dd></div>
       <div><dt>Опубликован</dt><dd>${formatDate(lead.publishedAt)}</dd></div>
       <div><dt>Добавлен</dt><dd>${formatDate(lead.createdAt)}</dd></div>

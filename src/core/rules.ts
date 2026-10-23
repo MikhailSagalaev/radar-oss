@@ -212,11 +212,12 @@ export function recalculateVoteScoreAndStatus(
 
   // Community sentiment formula:
   // community = (U - J - 3*S) / (U + J + S + 2)
+  const totalVotes = U + J + S + C;
   const denominator = U + J + S + 2;
   const community = (U - J - 3 * S) / denominator;
 
-  // Score adjustment based on community sentiment
-  const adjustment = Math.round(community * 25);
+  // Score adjustment applies when total vote weight reaches quorum (>= 1.0)
+  const adjustment = totalVotes >= 1.0 ? Math.round(community * 25) : 0;
   const score = Math.max(0, Math.min(100, Math.round(baseScore + adjustment)));
 
   let status = currentStatus;

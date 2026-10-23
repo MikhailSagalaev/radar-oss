@@ -290,4 +290,57 @@ describe('store', () => {
 
     await store.close();
   });
+
+  it('prevents single-subnet scam sniping (anti-snipe /24)', async () => {
+    const store = new MemoryStore();
+    const source = await store.createSource({ kind: 'rss', title: 'Feed' });
+    const lead = makeLead({ sourceId: source.id, id: 'lead-snipe', status: 'new', score: 80 });
+    await store.insertLead(lead);
+
+    // Vote scam from 91.229.8.10 (subnet 91.229.8.0/24)
+    const vote1 = await store.recordVote(lead.id, 'scam', 1, '91.229.8.0/24');
+    expect(vote1.votes_scam).toBe(1);
+
+    // Same subnet tries to vote scam again -> ignored!
+    const vote2 = await store.recordVote(lead.id, 'scam', 1, '91.229.8.0/24');
+    expect(vote2.votes_scam).toBe(1);
+
+    // Different subnet votes scam -> counted!
+    const vote3 = await store.recordVote(lead.id, 'scam', 1, '185.12.34.0/24');
+    expect(vote3.votes_scam).toBe(2);
+
+    await store.close();
+  });
+
+  it('searches tech tokens like C++, C#, .NET and 1C accurately', async () => {
+    const store = new MemoryStore();
+    const source = await store.createSource({ kind: 'rss', title: 'Feed' });
+    await store.insertLead(
+      makeLead({
+        sourceId: source.id,
+        id: 'lead-cpp',
+        title: 'Senior C++ Developer',
+        text: 'Highload network programming in C++20 and Qt',
+        fingerprint: 'fp-cpp',
+      }),
+    );
+    await store.insertLead(
+      makeLead({
+        sourceId: source.id,
+        id: 'lead-csharp',
+        title: 'Backend C# Engineer',
+        text: 'Enterprise API in .NET 8 and C#',
+        fingerprint: 'fp-csharp',
+      }),
+    );
+
+    const cppResults = await store.listLeads({ query: 'C++' });
+    expect(cppResults.map((l) => l.id)).toContain('lead-cpp');
+    expect(cppResults.map((l) => l.id)).not.toContain('lead-csharp');
+
+    const dotnetResults = await store.listLeads({ query: '.NET' });
+    expect(dotnetResults.map((l) => l.id)).toContain('lead-csharp');
+
+    await store.close();
+  });
 });

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/server/app.ts';
 import type { Runtime } from '../src/runtime.ts';
+import type { Env } from '../src/core/types.ts';
 import { loadEnv } from '../src/config.ts';
 import { makeTestRuntime } from './helpers.ts';
 
-function makeRuntime(): Runtime {
-  const base = makeTestRuntime({ RADAR_ADMIN_TOKEN: 'secret' });
+function makeRuntime(overrides: Partial<Env> = {}): Runtime {
+  const base = makeTestRuntime({ RADAR_ADMIN_TOKEN: 'secret', ...overrides });
   return {
     env: base.env,
     logger: base.logger,
@@ -775,6 +776,67 @@ describe('http server', () => {
 
     const storedLead = await runtime.store.getLead(leadId!);
     expect(storedLead?.type).toBe('job');
+
+    await runtime.store.close();
+  });
+
+  it('serves search RSS feed with matching items', async () => {
+    const runtime = makeRuntime({ RADAR_PUBLIC_READ: true });
+    const source = await runtime.store.createSource({ kind: 'rss', title: 'Feed' });
+    await runtime.store.insertLead({
+      id: 'lead-rss-1',
+      sourceId: source.id,
+      title: 'Python Backend Lead',
+      text: 'FastAPI and PostgreSQL development',
+      fingerprint: 'fp-rss-1',
+      titleKey: 'python-backend-lead',
+      status: 'new',
+      score: 85,
+      reasons: [],
+      createdAt: '2026-10-23T14:00:00Z',
+    });
+    const app = createApp(runtime);
+
+    const rssRes = await app.request('/feed.rss?q=FastAPI');
+    expect(rssRes.status).toBe(200);
+    expect(rssRes.headers.get('content-type')).toContain('application/rss+xml');
+    const xml = await rssRes.text();
+    expect(xml).toContain('<rss version="2.0"');
+    expect(xml).toContain('<title>Python Backend Lead</title>');
+    expect(xml).toContain('FastAPI and PostgreSQL');
+
+    await runtime.store.close();
+  });
+
+  it('serves federation delta stream in JSON and NDJSON formats', async () => {
+    const runtime = makeRuntime({ RADAR_PUBLIC_READ: true });
+    const source = await runtime.store.createSource({ kind: 'rss', title: 'Feed' });
+    await runtime.store.insertLead({
+      id: 'lead-delta-1',
+      sourceId: source.id,
+      title: 'DevOps Engineer',
+      text: 'Kubernetes, Terraform, CI/CD',
+      fingerprint: 'fp-delta-1',
+      titleKey: 'devops-engineer',
+      status: 'new',
+      score: 90,
+      reasons: [],
+      createdAt: '2026-10-23T14:30:00Z',
+    });
+    const app = createApp(runtime);
+
+    // JSON delta
+    const jsonRes = await app.request('/api/delta?since=2026-10-23T00:00:00Z');
+    expect(jsonRes.status).toBe(200);
+    const jsonBody = (await jsonRes.json()) as { count: number; items: Array<{ id: string }> };
+    expect(jsonBody.count).toBe(1);
+    expect(jsonBody.items[0]?.id).toBe('lead-delta-1');
+
+    // NDJSON delta
+    const ndjsonRes = await app.request('/api/delta?format=ndjson&since=2026-10-23T00:00:00Z');
+    expect(ndjsonRes.status).toBe(200);
+    const ndjsonText = await ndjsonRes.text();
+    expect(ndjsonText).toContain('"id":"lead-delta-1"');
 
     await runtime.store.close();
   });

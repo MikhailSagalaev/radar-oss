@@ -60,6 +60,7 @@ export interface Store {
     leadId: string,
     signal: 'useful' | 'junk' | 'scam' | 'closed',
     weight?: number,
+    subnet?: string,
   ): Promise<{
     votes_up: number;
     votes_down: number;

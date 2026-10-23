@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { recalculateVoteScoreAndStatus } from '../core/rules.ts';
+import { normalizeTechTokens } from '../core/text.ts';
 import type {
   CreateSourceInput,
   LeadDeliveryRecord,
@@ -142,6 +143,7 @@ export class MemoryStore implements Store {
     leadId: string,
     signal: 'useful' | 'junk' | 'scam' | 'closed',
     weight = 1.0,
+    subnet?: string,
   ): Promise<{
     votes_up: number;
     votes_down: number;
@@ -152,6 +154,23 @@ export class MemoryStore implements Store {
     const lead = this.leads.get(leadId);
     if (!lead) {
       throw new Error(`Lead not found: ${leadId}`);
+    }
+
+    // Anti-snipe: single /24 subnet can only strike scam once
+    if (signal === 'scam' && subnet) {
+      const meta = lead.metadata ?? {};
+      const scamSubnets = Array.isArray(meta.scam_subnets) ? (meta.scam_subnets as string[]) : [];
+      if (scamSubnets.includes(subnet)) {
+        return {
+          votes_up: lead.votes_up ?? 0,
+          votes_down: lead.votes_down ?? 0,
+          votes_scam: lead.votes_scam ?? 0,
+          votes_closed: lead.votes_closed ?? 0,
+          score: lead.score,
+        };
+      }
+      scamSubnets.push(subnet);
+      lead.metadata = { ...meta, scam_subnets: scamSubnets };
     }
 
     const w = typeof weight === 'number' && Number.isFinite(weight) && weight > 0 ? weight : 1.0;
@@ -206,9 +225,11 @@ export class MemoryStore implements Store {
     }
     if (options.query?.trim()) {
       const q = options.query.trim().toLowerCase();
+      const normQ = normalizeTechTokens(q).toLowerCase();
       result = result.filter((l) => {
-        const text = `${l.title} ${l.text} ${l.author ?? ''} ${l.city ?? ''} ${(l.skills ?? []).join(' ')}`.toLowerCase();
-        return text.includes(q);
+        const rawText = `${l.title} ${l.text} ${l.author ?? ''} ${l.city ?? ''} ${(l.skills ?? []).join(' ')}`.toLowerCase();
+        const normText = normalizeTechTokens(rawText).toLowerCase();
+        return rawText.includes(q) || normText.includes(normQ);
       });
     }
 

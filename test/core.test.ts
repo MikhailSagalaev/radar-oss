@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cleanTitle, extractBudget, extractCity } from '../src/core/extract.ts';
 import { prepareRawLead } from '../src/core/prepare.ts';
 import { applyRules } from '../src/core/rules.ts';
+import { normalizeTechTokens } from '../src/core/text.ts';
 import { canonicalizeUrl } from '../src/core/url.ts';
 import { makeSource, TEST_NOW } from './helpers.ts';
 
@@ -124,5 +125,19 @@ describe('rules', () => {
       TEST_NOW,
     );
     expect(applyRules(lead, source, TEST_NOW).reasons).toContain('budget_below:1000');
+  });
+});
+
+describe('tech token normalization', () => {
+  it('maps symbols in IT terms to searchable alphanumeric tokens', () => {
+    expect(normalizeTechTokens('Ищем Senior C++ и C# разработчика')).toBe(
+      'Ищем Senior cpp_tech и csharp_tech разработчика',
+    );
+    expect(normalizeTechTokens('Разработка на .NET и 1С:Предприятие')).toBe(
+      'Разработка на dotnet_tech и onec_tech:Предприятие',
+    );
+    expect(normalizeTechTokens('Backend: Node.js, Next.js, Golang и F#')).toBe(
+      'Backend: nodejs_tech, nextjs_tech, golang_tech и fsharp_tech',
+    );
   });
 });
