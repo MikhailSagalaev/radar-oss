@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Radar — отправка заказов",
+  "name": "OpenRadar — захват вакансий и заказов",
   "version": "0.4.0",
-  "description": "Отправляет заказы и страницы в Radar в один клик или через контекстное меню.",
+  "description": "Отправляет вакансии и заказы в OpenRadar в один клик или через контекстное меню.",
   "permissions": ["activeTab", "scripting", "storage", "contextMenus", "notifications"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Отправить в Radar",
+    "default_title": "Отправить в OpenRadar",
     "default_popup": "popup.html"
   },
   "content_scripts": [
@@ -24,7 +24,7 @@
       "suggested_key": {
         "default": "Alt+Shift+R"
       },
-      "description": "Отправить текущую страницу в Radar"
+      "description": "Отправить текущую страницу в OpenRadar"
     }
   }
 }
