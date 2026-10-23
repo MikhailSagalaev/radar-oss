@@ -21,6 +21,29 @@ export class SinkRegistry {
     return [...this.sinks];
   }
 
+  async deliverTo(
+    sinkKind: string,
+    lead: Lead,
+    ctx: { env: Env; logger: Logger; fetchImpl: typeof fetch }
+  ): Promise<DeliveryResult> {
+    const sink = this.sinks.find((s) => s.kind === sinkKind);
+    if (!sink) {
+      return { sink: sinkKind, ok: false, error: `Sink ${sinkKind} not registered` };
+    }
+    try {
+      await sink.deliver(lead, {
+        env: ctx.env,
+        logger: ctx.logger.child(sink.kind),
+        fetchImpl: ctx.fetchImpl,
+      });
+      return { sink: sink.kind, ok: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.logger.warn('sink delivery failed', { sink: sink.kind, error: message });
+      return { sink: sink.kind, ok: false, error: message };
+    }
+  }
+
   async deliver(lead: Lead, ctx: { env: Env; logger: Logger; fetchImpl: typeof fetch }): Promise<DeliveryResult[]> {
     const results: DeliveryResult[] = [];
     for (const sink of this.sinks) {

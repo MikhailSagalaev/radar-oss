@@ -12,6 +12,7 @@ import type {
 } from '../core/types.ts';
 import type {
   CreateSourceInput,
+  LeadDeliveryRecord,
   ListLeadsOptions,
   Store,
   UpdateSourceInput,
@@ -436,5 +437,77 @@ export class PostgresStore implements Store {
       createdAt: new Date(r.created_at).toISOString(),
       deliveredAt: r.delivered_at ? new Date(r.delivered_at).toISOString() : undefined,
     };
+  }
+
+  async initLeadDeliveries(leadId: string, sinks: string[]): Promise<void> {
+    for (const sink of sinks) {
+      await this.pool.query(
+        `INSERT INTO lead_deliveries (lead_id, sink, status, attempts, next_attempt_at, created_at, updated_at)
+         VALUES ($1, $2, 'pending', 0, NOW(), NOW(), NOW())
+         ON CONFLICT (lead_id, sink) DO NOTHING`,
+        [leadId, sink]
+      );
+    }
+  }
+
+  async updateLeadDelivery(
+    leadId: string,
+    sink: string,
+    status: 'sent' | 'failed',
+    error?: string,
+    nextAttemptAt?: string
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE lead_deliveries
+       SET status = $3,
+           attempts = attempts + 1,
+           last_error = $4,
+           next_attempt_at = COALESCE($5::timestamptz, NOW()),
+           updated_at = NOW()
+       WHERE lead_id = $1 AND sink = $2`,
+      [leadId, sink, status, error || null, nextAttemptAt || null]
+    );
+  }
+
+  async getPendingDeliveries(limit = 50): Promise<LeadDeliveryRecord[]> {
+    const res = await this.pool.query(
+      `SELECT lead_id, sink, status, attempts, next_attempt_at, last_error, created_at, updated_at
+       FROM lead_deliveries
+       WHERE status != 'sent' AND attempts < 5 AND next_attempt_at <= NOW()
+       ORDER BY next_attempt_at ASC
+       LIMIT $1
+       FOR UPDATE SKIP LOCKED`,
+      [limit]
+    );
+    return res.rows.map((r: any) => ({
+      leadId: r.lead_id,
+      sink: r.sink,
+      status: r.status,
+      attempts: parseInt(r.attempts, 10) || 0,
+      nextAttemptAt: new Date(r.next_attempt_at).toISOString(),
+      lastError: r.last_error || undefined,
+      createdAt: new Date(r.created_at).toISOString(),
+      updatedAt: new Date(r.updated_at).toISOString(),
+    }));
+  }
+
+  async getLeadDeliveries(leadId: string): Promise<LeadDeliveryRecord[]> {
+    const res = await this.pool.query(
+      `SELECT lead_id, sink, status, attempts, next_attempt_at, last_error, created_at, updated_at
+       FROM lead_deliveries
+       WHERE lead_id = $1
+       ORDER BY sink ASC`,
+      [leadId]
+    );
+    return res.rows.map((r: any) => ({
+      leadId: r.lead_id,
+      sink: r.sink,
+      status: r.status,
+      attempts: parseInt(r.attempts, 10) || 0,
+      nextAttemptAt: new Date(r.next_attempt_at).toISOString(),
+      lastError: r.last_error || undefined,
+      createdAt: new Date(r.created_at).toISOString(),
+      updatedAt: new Date(r.updated_at).toISOString(),
+    }));
   }
 }

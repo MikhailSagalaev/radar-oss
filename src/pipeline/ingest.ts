@@ -136,6 +136,11 @@ export async function ingestRawLead(
     return { status: 'rejected', lead, reasons };
   }
 
+  const registeredSinks = deps.sinks.list().map((s) => s.kind);
+  if (deps.store.initLeadDeliveries && registeredSinks.length > 0) {
+    await deps.store.initLeadDeliveries(lead.id, registeredSinks);
+  }
+
   const deliveries = await deps.sinks.deliver(lead, {
     env: deps.env,
     logger: deps.logger,
@@ -149,6 +154,14 @@ export async function ingestRawLead(
       delivery.ok ? 'sent' : 'failed',
       delivery.error,
     );
+    if (deps.store.updateLeadDelivery) {
+      if (delivery.ok) {
+        await deps.store.updateLeadDelivery(lead.id, delivery.sink, 'sent');
+      } else {
+        const nextAttempt = new Date(Date.now() + 10 * 1000).toISOString();
+        await deps.store.updateLeadDelivery(lead.id, delivery.sink, 'failed', delivery.error, nextAttempt);
+      }
+    }
   }
 
   if (deliveries.length === 0) {

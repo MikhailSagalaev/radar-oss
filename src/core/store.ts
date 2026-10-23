@@ -30,6 +30,17 @@ export interface ListLeadsOptions {
   query?: string;
 }
 
+export interface LeadDeliveryRecord {
+  leadId: string;
+  sink: string;
+  status: 'pending' | 'sent' | 'failed';
+  attempts: number;
+  nextAttemptAt: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Store {
   init?(): Promise<void>;
   listSources(): Promise<SourceRecord[]>;
@@ -50,6 +61,11 @@ export interface Store {
   recordRun(run: RunRecord): Promise<void>;
   listRuns(limit?: number, sourceId?: string): Promise<RunRecord[]>;
   recordDelivery(leadId: string, sink: string, status: 'sent' | 'failed', error?: string): Promise<void>;
+
+  initLeadDeliveries?(leadId: string, sinks: string[]): Promise<void>;
+  updateLeadDelivery?(leadId: string, sink: string, status: 'sent' | 'failed', error?: string, nextAttemptAt?: string): Promise<void>;
+  getPendingDeliveries?(limit?: number): Promise<LeadDeliveryRecord[]>;
+  getLeadDeliveries?(leadId: string): Promise<LeadDeliveryRecord[]>;
 
   close(): Promise<void>;
 }

@@ -125,6 +125,34 @@ Every adapter declares its access level and risks in code. New adapters are expe
 
 A sink failure marks the lead as `failed`, records the error and does not stop other sinks.
 
+### Webhook Signature Verification
+
+When `WEBHOOK_SECRET` is configured, outgoing webhook requests include `x-radar-timestamp` (unix timestamp in seconds) and `x-radar-signature` headers (`HMAC-SHA256(secret, "${timestamp}.${rawBody}")` in hex).
+
+Example verification in Node.js:
+
+```javascript
+import crypto from 'node:crypto';
+
+function verifyRadarWebhook(rawBody, headers, secret) {
+  const timestamp = headers['x-radar-timestamp'];
+  const signature = headers['x-radar-signature'];
+  if (!timestamp || !signature) return false;
+
+  // Protect against replay attacks (5 minute window)
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) {
+    return false;
+  }
+
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest('hex');
+
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+}
+```
+
 ## Browser extension
 
 A tiny Manifest V3 extension sends the current page or selected text to a webhook source. It has no build step and no dependencies.

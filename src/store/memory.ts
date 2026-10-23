@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type {
   CreateSourceInput,
+  LeadDeliveryRecord,
   ListLeadsOptions,
   Store,
   UpdateSourceInput,
@@ -20,6 +21,7 @@ export class MemoryStore implements Store {
   private leadsByFingerprint = new Map<string, string>();
   private runs: RunRecord[] = [];
   private deliveries: Array<{ id: string; leadId: string; sink: string; status: string; error?: string; createdAt: string }> = [];
+  private leadDeliveries = new Map<string, LeadDeliveryRecord>();
 
   async init(): Promise<void> {}
 
@@ -191,11 +193,74 @@ export class MemoryStore implements Store {
     });
   }
 
+  async initLeadDeliveries(leadId: string, sinks: string[]): Promise<void> {
+    const now = new Date().toISOString();
+    for (const sink of sinks) {
+      const key = `${leadId}:${sink}`;
+      if (!this.leadDeliveries.has(key)) {
+        this.leadDeliveries.set(key, {
+          leadId,
+          sink,
+          status: 'pending',
+          attempts: 0,
+          nextAttemptAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+  }
+
+  async updateLeadDelivery(
+    leadId: string,
+    sink: string,
+    status: 'sent' | 'failed',
+    error?: string,
+    nextAttemptAt?: string
+  ): Promise<void> {
+    const key = `${leadId}:${sink}`;
+    const current = this.leadDeliveries.get(key);
+    const now = new Date().toISOString();
+    if (current) {
+      current.status = status;
+      current.attempts += 1;
+      current.lastError = error;
+      current.nextAttemptAt = nextAttemptAt ?? now;
+      current.updatedAt = now;
+    } else {
+      this.leadDeliveries.set(key, {
+        leadId,
+        sink,
+        status,
+        attempts: 1,
+        nextAttemptAt: nextAttemptAt ?? now,
+        lastError: error,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  }
+
+  async getPendingDeliveries(limit = 50): Promise<LeadDeliveryRecord[]> {
+    const now = new Date().toISOString();
+    const pending = Array.from(this.leadDeliveries.values())
+      .filter((d) => d.status !== 'sent' && d.attempts < 5 && d.nextAttemptAt <= now)
+      .sort((a, b) => a.nextAttemptAt.localeCompare(b.nextAttemptAt));
+    return pending.slice(0, limit);
+  }
+
+  async getLeadDeliveries(leadId: string): Promise<LeadDeliveryRecord[]> {
+    return Array.from(this.leadDeliveries.values())
+      .filter((d) => d.leadId === leadId)
+      .sort((a, b) => a.sink.localeCompare(b.sink));
+  }
+
   async close(): Promise<void> {
     this.sources.clear();
     this.leads.clear();
     this.leadsByFingerprint.clear();
     this.runs = [];
     this.deliveries = [];
+    this.leadDeliveries.clear();
   }
 }

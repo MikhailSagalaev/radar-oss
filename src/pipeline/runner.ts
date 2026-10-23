@@ -1,5 +1,6 @@
 import type { Logger } from '../core/types.ts';
 import { pollAll, type PollDeps } from './poll.ts';
+import { processOutbox } from './outbox.ts';
 
 export class PollRunner {
   private timer: NodeJS.Timeout | undefined;
@@ -18,8 +19,9 @@ export class PollRunner {
         return;
       }
       this.running = true;
-      void pollAll(this.deps)
-        .then((summaries) => {
+      void (async () => {
+        try {
+          const summaries = await pollAll(this.deps);
           if (summaries.length) {
             this.logger.info('scheduled poll finished', {
               sources: summaries.length,
@@ -27,15 +29,26 @@ export class PollRunner {
               errors: summaries.filter((item) => item.error).length,
             });
           }
-        })
-        .catch((error) => {
-          this.logger.error('scheduled poll failed', {
+
+          // Запуск обработки отложенной Outbox-доставки
+          const outboxRes = await processOutbox({
+            store: this.deps.store,
+            sinks: this.deps.sinks,
+            env: this.deps.env,
+            logger: this.deps.logger,
+            fetchImpl: this.deps.fetchImpl,
+          });
+          if (outboxRes.processed > 0) {
+            this.logger.info('outbox delivery batch finished', outboxRes);
+          }
+        } catch (error) {
+          this.logger.error('scheduled cycle failed', {
             error: error instanceof Error ? error.message : String(error),
           });
-        })
-        .finally(() => {
+        } finally {
           this.running = false;
-        });
+        }
+      })();
     };
 
     tick();
