@@ -1,14 +1,17 @@
 import { loadEnv } from '../src/config.ts';
 import { createLogger } from '../src/core/logger.ts';
 import type { Env, Lead, PollContext, SinkAdapter, SourceRecord } from '../src/core/types.ts';
+import type { Store } from '../src/core/store.ts';
 import { createSourceRegistry, type SourceRegistry } from '../src/sources/index.ts';
 import { SinkRegistry } from '../src/sinks/index.ts';
-import { openStore, type SqliteStore } from '../src/store/sqlite.ts';
+import { openStore } from '../src/store/sqlite.ts';
+import { PostgresStore } from '../src/store/postgres.ts';
 
 export const TEST_NOW = new Date('2026-10-21T12:00:00.000Z');
 
 export function testEnv(overrides: Partial<Env> = {}): Env {
   return loadEnv({
+    NODE_ENV: 'test',
     RADAR_DB_PATH: ':memory:',
     RADAR_ADMIN_TOKEN: undefined,
     RADAR_CONSOLE_SINK: false,
@@ -57,16 +60,24 @@ export class MemorySink implements SinkAdapter {
 }
 
 export interface TestRuntime {
-  store: SqliteStore;
+  store: Store;
   env: Env;
   logger: ReturnType<typeof createLogger>;
   sources: SourceRegistry;
   sinks: SinkRegistry;
 }
 
+export function createTestStore(): Store {
+  if (process.env.RADAR_TEST_STORE === 'postgres') {
+    const url = process.env.DATABASE_URL || 'postgres://radar:radar@127.0.0.1:5432/radar_test';
+    return new PostgresStore(url);
+  }
+  return openStore(':memory:');
+}
+
 export function makeTestRuntime(overrides: Partial<Env> = {}): TestRuntime {
   return {
-    store: openStore(':memory:'),
+    store: createTestStore(),
     env: testEnv(overrides),
     logger: createLogger('error'),
     sources: createSourceRegistry(),

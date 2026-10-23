@@ -144,6 +144,10 @@ export class PostgresStore implements Store {
     await this.pool.end();
   }
 
+  async truncate(): Promise<void> {
+    await this.pool.query('TRUNCATE TABLE deliveries, runs, leads, sources CASCADE');
+  }
+
   async listSources(): Promise<SourceRecord[]> {
     const res = await this.pool.query(
       `SELECT id, kind, title, enabled, config_json, created_at, updated_at FROM sources ORDER BY created_at ASC`

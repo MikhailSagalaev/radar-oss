@@ -31,24 +31,25 @@ export interface ListLeadsOptions {
 }
 
 export interface Store {
-  listSources(): Promise<SourceRecord[]> | SourceRecord[];
-  getSource(id: string): Promise<SourceRecord | null> | SourceRecord | null;
-  createSource(input: CreateSourceInput): Promise<SourceRecord> | SourceRecord;
-  updateSource(id: string, patch: UpdateSourceInput): Promise<SourceRecord | null> | SourceRecord | null;
-  deleteSource(id: string): Promise<boolean> | boolean;
+  init?(): Promise<void>;
+  listSources(): Promise<SourceRecord[]>;
+  getSource(id: string): Promise<SourceRecord | null>;
+  createSource(input: CreateSourceInput): Promise<SourceRecord>;
+  updateSource(id: string, patch: UpdateSourceInput): Promise<SourceRecord | null>;
+  deleteSource(id: string): Promise<boolean>;
 
-  findLeadByFingerprint(fingerprint: string): Promise<Lead | null> | Lead | null;
-  getLead(id: string): Promise<Lead | null> | Lead | null;
-  findRecentByTitleKey(titleKey: string, city: string | undefined, sinceIso: string): Promise<Lead | null> | Lead | null;
-  insertLead(lead: Lead): Promise<boolean> | boolean;
-  updateLeadStatus(id: string, status: LeadStatus, deliveredAt?: string): Promise<void> | void;
-  listLeads(options?: ListLeadsOptions): Promise<Lead[]> | Lead[];
-  getStats(): Promise<Stats> | Stats;
-  getSourceHealth(): Promise<SourceHealth[]> | SourceHealth[];
+  findLeadByFingerprint(fingerprint: string): Promise<Lead | null>;
+  getLead(id: string): Promise<Lead | null>;
+  findRecentByTitleKey(titleKey: string, city: string | undefined, sinceIso: string): Promise<Lead | null>;
+  insertLead(lead: Lead): Promise<boolean>;
+  updateLeadStatus(id: string, status: LeadStatus, deliveredAt?: string): Promise<void>;
+  listLeads(options?: ListLeadsOptions): Promise<Lead[]>;
+  getStats(): Promise<Stats>;
+  getSourceHealth(): Promise<SourceHealth[]>;
 
-  recordRun(run: RunRecord): Promise<void> | void;
-  listRuns(limit?: number, sourceId?: string): Promise<RunRecord[]> | RunRecord[];
-  recordDelivery(leadId: string, sink: string, status: 'sent' | 'failed', error?: string): Promise<void> | void;
+  recordRun(run: RunRecord): Promise<void>;
+  listRuns(limit?: number, sourceId?: string): Promise<RunRecord[]>;
+  recordDelivery(leadId: string, sink: string, status: 'sent' | 'failed', error?: string): Promise<void>;
 
-  close(): Promise<void> | void;
+  close(): Promise<void>;
 }

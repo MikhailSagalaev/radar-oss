@@ -41,7 +41,7 @@ function safeEqual(left: string | undefined, right: string): boolean {
 }
 
 function isAdmin(c: Context, env: Runtime['env']): boolean {
-  if (!env.RADAR_ADMIN_TOKEN) return true;
+  if (!env.RADAR_ADMIN_TOKEN) return false;
   return safeEqual(tokenFromRequest(c), env.RADAR_ADMIN_TOKEN);
 }
 

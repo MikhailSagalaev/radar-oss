@@ -141,11 +141,11 @@ function configSummary(source: SourceRecord): string {
 }
 
 async function withRuntime<T>(fn: (runtime: Runtime) => Promise<T> | T): Promise<T> {
-  const runtime = createRuntime();
+  const runtime = await createRuntime();
   try {
     return await fn(runtime);
   } finally {
-    runtime.store.close();
+    await runtime.store.close();
   }
 }
 
@@ -297,8 +297,8 @@ function buildProgram(): Command {
     .command('enable <id>')
     .description('Enable a source')
     .action(async (id: string) => {
-      await withRuntime((runtime) => {
-        const updated = runtime.store.updateSource(id, { enabled: true });
+      await withRuntime(async (runtime) => {
+        const updated = await runtime.store.updateSource(id, { enabled: true });
         if (!updated) fail(`source ${id} not found`);
         console.log(`Источник ${id} включён`);
       });
@@ -308,8 +308,8 @@ function buildProgram(): Command {
     .command('disable <id>')
     .description('Disable a source')
     .action(async (id: string) => {
-      await withRuntime((runtime) => {
-        const updated = runtime.store.updateSource(id, { enabled: false });
+      await withRuntime(async (runtime) => {
+        const updated = await runtime.store.updateSource(id, { enabled: false });
         if (!updated) fail(`source ${id} not found`);
         console.log(`Источник ${id} выключен`);
       });
@@ -319,8 +319,9 @@ function buildProgram(): Command {
     .command('remove <id>')
     .description('Delete a source')
     .action(async (id: string) => {
-      await withRuntime((runtime) => {
-        if (!runtime.store.deleteSource(id)) fail(`source ${id} not found`);
+      await withRuntime(async (runtime) => {
+        const deleted = await runtime.store.deleteSource(id);
+        if (!deleted) fail(`source ${id} not found`);
         console.log(`Источник ${id} удалён`);
       });
     });
@@ -465,7 +466,7 @@ function buildProgram(): Command {
     .option('--port <port>', 'HTTP port')
     .option('--no-scheduler', 'Do not poll sources in the background')
     .action(async (options: ServeOptions) => {
-      const runtime = createRuntime();
+      const runtime = await createRuntime();
       const app = createApp(runtime);
       const port = numberOption(options.port) ?? runtime.env.PORT;
       const server = startServer(app, port);
@@ -476,9 +477,12 @@ function buildProgram(): Command {
 
       const shutdown = (): void => {
         runner?.stop();
-        server.close(() => {
-          runtime.store.close();
-          process.exit(0);
+        server.close(async () => {
+          try {
+            await runtime.store.close();
+          } finally {
+            process.exit(0);
+          }
         });
       };
       process.once('SIGINT', shutdown);

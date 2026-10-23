@@ -42,7 +42,7 @@ export async function pollSource(
   const adapter = deps.sources.get(source.kind);
   if (!adapter) {
     const error = `No adapter registered for kind "${source.kind}"`;
-    deps.store.recordRun({
+    await deps.store.recordRun({
       id: randomUUID(),
       sourceId: source.id,
       startedAt,
@@ -59,7 +59,7 @@ export async function pollSource(
 
   if (!adapter.poll) {
     const error = `Source "${source.id}" is not pollable; POST to /api/ingest/${source.id}`;
-    deps.store.recordRun({
+    await deps.store.recordRun({
       id: randomUUID(),
       sourceId: source.id,
       startedAt,

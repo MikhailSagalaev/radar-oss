@@ -50,7 +50,7 @@ async function runE2ETestSuite() {
   assert(healthRes.status === 200, 'GET /health возвращает 200 OK');
 
   // 2. Создание Webhook-источника
-  const src = store.createSource({
+  const src = await store.createSource({
     kind: 'webhook',
     title: 'Комьюнити-тест',
     config: { token: 'community-token-123' },
@@ -86,14 +86,15 @@ async function runE2ETestSuite() {
   assert(ingestBody.accepted === 1, '1 лид успешно принят и обработан в пайплайне');
 
   // 4. Проверка полнотекстового поиска
-  const searchBySkill = store.listLeads({ query: 'FastAPI' });
+  const searchBySkill = await store.listLeads({ query: 'FastAPI' });
   assert(searchBySkill.length === 1, 'Поиск по тегу/слову из текста "FastAPI" находит созданный заказ');
 
-  const searchByCity = store.listLeads({ query: 'Москва' });
+  const searchByCity = await store.listLeads({ query: 'Москва' });
   assert(searchByCity.length === 1, 'Поиск по городу "Москва" находит заказ');
 
   // 5. Проверка сохранения метаданных и характеристик
   const savedLead = searchBySkill[0];
+  if (!savedLead) throw new Error('Lead not found in search results');
   assert(savedLead.category === 'Бэкенд-разработка', 'Категория "Бэкенд-разработка" сохранена в базе');
   assert(Array.isArray(savedLead.skills) && savedLead.skills.includes('Python'), 'Массив skills ["Python", ...] сохранен');
   assert(savedLead.author === '@qa_tester (community)', 'Авторство контрибьютора сохранено');
@@ -116,7 +117,7 @@ async function runE2ETestSuite() {
   const extHtml = await extPage.text();
   assert(extHtml.includes('Комьюнити-тест'), 'На странице /extension выводится созданный webhook-источник');
 
-  store.close();
+  await store.close();
 
   console.log(`\n🏁 [QA Tester] Итог: ${passed} успешно, ${failed} ошибок.`);
   if (failed > 0) process.exit(1);

@@ -26,49 +26,49 @@ function makeLead(overrides: Partial<Lead> = {}): Lead {
 }
 
 describe('sqlite store', () => {
-  it('creates, updates and deletes sources', () => {
+  it('creates, updates and deletes sources', async () => {
     const store = openStore(':memory:');
-    const source = store.createSource({
+    const source = await store.createSource({
       kind: 'rss',
       title: 'Feed',
       config: { url: 'https://example.com/rss' },
     });
     expect(source.id).toMatch(/^rss_/);
-    expect(store.listSources()).toHaveLength(1);
+    expect(await store.listSources()).toHaveLength(1);
 
-    const updated = store.updateSource(source.id, { enabled: false, title: 'Renamed' });
+    const updated = await store.updateSource(source.id, { enabled: false, title: 'Renamed' });
     expect(updated?.enabled).toBe(false);
     expect(updated?.title).toBe('Renamed');
 
-    expect(store.deleteSource(source.id)).toBe(true);
-    expect(store.listSources()).toHaveLength(0);
-    store.close();
+    expect(await store.deleteSource(source.id)).toBe(true);
+    expect(await store.listSources()).toHaveLength(0);
+    await store.close();
   });
 
-  it('deduplicates by fingerprint and title key', () => {
+  it('deduplicates by fingerprint and title key', async () => {
     const store = openStore(':memory:');
-    const source = store.createSource({ kind: 'rss', title: 'Feed' });
+    const source = await store.createSource({ kind: 'rss', title: 'Feed' });
     const lead = makeLead({ sourceId: source.id });
 
-    expect(store.insertLead(lead)).toBe(true);
-    expect(store.insertLead({ ...lead, id: 'lead-2' })).toBe(false);
-    expect(store.findLeadByFingerprint(lead.fingerprint)?.id).toBe(lead.id);
+    expect(await store.insertLead(lead)).toBe(true);
+    expect(await store.insertLead({ ...lead, id: 'lead-2' })).toBe(false);
+    expect((await store.findLeadByFingerprint(lead.fingerprint))?.id).toBe(lead.id);
 
-    const recent = store.findRecentByTitleKey(
+    const recent = await store.findRecentByTitleKey(
       lead.titleKey,
       lead.city,
       new Date(TEST_NOW.getTime() - 24 * 3600 * 1000).toISOString(),
     );
     expect(recent?.id).toBe(lead.id);
 
-    store.close();
+    await store.close();
   });
 
-  it('lists leads and computes stats', () => {
+  it('lists leads and computes stats', async () => {
     const store = openStore(':memory:');
-    const source = store.createSource({ kind: 'rss', title: 'Feed' });
-    store.insertLead(makeLead({ sourceId: source.id, id: 'lead-new' }));
-    store.insertLead(
+    const source = await store.createSource({ kind: 'rss', title: 'Feed' });
+    await store.insertLead(makeLead({ sourceId: source.id, id: 'lead-new' }));
+    await store.insertLead(
       makeLead({
         sourceId: source.id,
         id: 'lead-rejected',
@@ -79,20 +79,20 @@ describe('sqlite store', () => {
       }),
     );
 
-    expect(store.listLeads({ status: 'new' })).toHaveLength(1);
-    expect(store.listLeads({ status: 'rejected' })).toHaveLength(1);
-    const stats = store.getStats();
+    expect(await store.listLeads({ status: 'new' })).toHaveLength(1);
+    expect(await store.listLeads({ status: 'rejected' })).toHaveLength(1);
+    const stats = await store.getStats();
     expect(stats.sources).toBe(1);
     expect(stats.leads).toBe(2);
     expect(stats.newLeads).toBe(1);
     expect(stats.rejectedLeads).toBe(1);
 
-    store.close();
+    await store.close();
   });
 
-  it('records runs', () => {
+  it('records runs', async () => {
     const store = openStore(':memory:');
-    store.recordRun({
+    await store.recordRun({
       id: 'run-1',
       sourceId: 'source-1',
       startedAt: TEST_NOW.toISOString(),
@@ -103,16 +103,16 @@ describe('sqlite store', () => {
       rejected: 0,
       delivered: 2,
     });
-    expect(store.listRuns()).toHaveLength(1);
-    expect(store.listRuns()[0]?.found).toBe(3);
-    store.close();
+    expect(await store.listRuns()).toHaveLength(1);
+    expect((await store.listRuns())[0]?.found).toBe(3);
+    await store.close();
   });
 
-  it('filters leads by a normalized query', () => {
+  it('filters leads by a normalized query', async () => {
     const store = openStore(':memory:');
-    const source = store.createSource({ kind: 'rss', title: 'Feed' });
-    store.insertLead(makeLead({ sourceId: source.id, id: 'lead-1', title: 'Нужен сантехник' }));
-    store.insertLead(
+    const source = await store.createSource({ kind: 'rss', title: 'Feed' });
+    await store.insertLead(makeLead({ sourceId: source.id, id: 'lead-1', title: 'Нужен сантехник' }));
+    await store.insertLead(
       makeLead({
         sourceId: source.id,
         id: 'lead-2',
@@ -123,14 +123,14 @@ describe('sqlite store', () => {
       }),
     );
 
-    expect(store.listLeads({ query: 'САНТЕХНИК' })).toHaveLength(1);
-    expect(store.listLeads({ query: 'электрик' })[0]?.title).toBe('Нужен электрик');
-    store.close();
+    expect(await store.listLeads({ query: 'САНТЕХНИК' })).toHaveLength(1);
+    expect((await store.listLeads({ query: 'электрик' }))[0]?.title).toBe('Нужен электрик');
+    await store.close();
   });
 
-  it('aggregates source health', () => {
+  it('aggregates source health', async () => {
     const store = openStore(':memory:');
-    const source = store.createSource({ kind: 'rss', title: 'Health feed' });
+    const source = await store.createSource({ kind: 'rss', title: 'Health feed' });
     const base = {
       sourceId: source.id,
       startedAt: new Date(Date.now() - 60_000).toISOString(),
@@ -141,8 +141,8 @@ describe('sqlite store', () => {
       rejected: 0,
       delivered: 2,
     };
-    store.recordRun({ ...base, id: 'run-ok' });
-    store.recordRun({
+    await store.recordRun({ ...base, id: 'run-ok' });
+    await store.recordRun({
       ...base,
       id: 'run-fail',
       startedAt: new Date().toISOString(),
@@ -153,14 +153,14 @@ describe('sqlite store', () => {
       error: 'timeout',
     });
 
-    const health = store.getSourceHealth();
+    const health = await store.getSourceHealth();
     expect(health).toHaveLength(1);
     expect(health[0]?.last24h.runs).toBe(2);
     expect(health[0]?.last24h.errors).toBe(1);
     expect(health[0]?.last24h.found).toBe(3);
     expect(health[0]?.successRate).toBe(50);
     expect(health[0]?.lastRun?.error).toBe('timeout');
-    expect(store.listRuns(10, source.id)).toHaveLength(2);
-    store.close();
+    expect(await store.listRuns(10, source.id)).toHaveLength(2);
+    await store.close();
   });
 });

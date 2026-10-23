@@ -22,9 +22,11 @@ const booleanFromEnv = (defaultValue: boolean) =>
     });
 
 const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   DATABASE_URL: optionalString,
   RADAR_DB_PATH: z.string().min(1).default('./data/radar.db'),
   RADAR_ADMIN_TOKEN: optionalString,
+  RADAR_HOST_PORT: z.coerce.number().int().positive().optional(),
   RADAR_USER_AGENT: z
     .string()
     .default('RadarBot/0.3.0 (+https://github.com/MikhailSagalaev/radar-oss)'),
@@ -46,5 +48,17 @@ const envSchema = z.object({
 
 export function loadEnv(overrides: Partial<Env> = {}): Env {
   const parsed = envSchema.parse(process.env);
-  return { ...parsed, ...overrides };
+  const env: Env = { ...parsed, ...overrides };
+
+  if (env.NODE_ENV === 'production') {
+    const token = env.RADAR_ADMIN_TOKEN?.trim();
+    if (!token || token === 'change-me' || token.length < 32) {
+      throw new Error(
+        'FATAL: RADAR_ADMIN_TOKEN is missing, default ("change-me"), or shorter than 32 characters in production mode. ' +
+        'Generate a strong random token, e.g. `openssl rand -hex 32`.'
+      );
+    }
+  }
+
+  return env;
 }

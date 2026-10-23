@@ -1,58 +1,85 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Radar Auto-Deploy Script for Server ( рядом с ProfiPass )
+# Radar Auto-Deploy Script for Server
 # ==============================================================================
-set -e
+set -euo pipefail
 
 echo "🚀 [Radar Deploy] Начинаем развертывание Radar..."
 
 # 1. Проверяем наличие директории
-TARGET_DIR="/opt/radar"
+TARGET_DIR="${RADAR_DIR:-/opt/radar}"
 if [ ! -d "$TARGET_DIR" ]; then
   echo "📦 Клонируем репозиторий в $TARGET_DIR..."
   git clone https://github.com/MikhailSagalaev/radar-oss.git "$TARGET_DIR"
-else
-  echo "🔄 Обновляем репозиторий в $TARGET_DIR..."
-  cd "$TARGET_DIR"
-  git pull origin main
 fi
 
 cd "$TARGET_DIR"
+echo "🔄 Обновляем репозиторий в $TARGET_DIR..."
+git pull origin main || true
 
-# 2. Создаем production .env если его нет
+# 2. Создаем production .env если его нет или дополняем обязательными секретами
 if [ ! -f .env ]; then
-  echo "⚙️ Создаем .env файл конфигурации..."
-  cat << 'EOF' > .env
+  echo "⚙️ Создаем .env файл конфигурации со случайными надежными секретами..."
+  RAND_DB_PWD=$(openssl rand -hex 24)
+  RAND_ADMIN_TOKEN=$(openssl rand -hex 32)
+  cat << EOF > .env
 PORT=8787
+RADAR_HOST_PORT=8787
 NODE_ENV=production
-ADMIN_TOKEN=radar_admin_super_secret_2026
-SESSION_SECRET=radar_session_random_secret_string_12345
-WEBHOOK_TOKEN=radar_ext_token_777
+RADAR_ADMIN_TOKEN=${RAND_ADMIN_TOKEN}
 
-# Подключение к PostgreSQL 17 (pgvector)
-DATABASE_URL=postgres://radar:radar_secure_password@postgres:5432/radar
+# PostgreSQL 17 + pgvector
+POSTGRES_USER=radar
+POSTGRES_DB=radar
+POSTGRES_PASSWORD=${RAND_DB_PWD}
+DATABASE_URL=postgres://radar:${RAND_DB_PWD}@postgres:5432/radar
 
-# Интеграция с ProfiPass (авто-отправка лидов)
-WEBHOOK_URL=http://127.0.0.1:3000/api/internal/leads
+# General
+RADAR_LOG_LEVEL=info
+RADAR_PUBLIC_READ=false
+RADAR_CONSOLE_SINK=true
 EOF
-  echo "✅ .env файл создан."
+  echo "✅ .env файл успешно создан."
+else
+  # Дополняем недостающие переменные если файл уже был
+  if ! grep -q "^POSTGRES_PASSWORD=" .env 2>/dev/null; then
+    RAND_DB_PWD=$(openssl rand -hex 24)
+    echo "POSTGRES_PASSWORD=${RAND_DB_PWD}" >> .env
+  fi
+  if ! grep -q "^RADAR_ADMIN_TOKEN=" .env 2>/dev/null; then
+    RAND_ADMIN_TOKEN=$(openssl rand -hex 32)
+    echo "RADAR_ADMIN_TOKEN=${RAND_ADMIN_TOKEN}" >> .env
+  fi
+  if ! grep -q "^RADAR_HOST_PORT=" .env 2>/dev/null; then
+    echo "RADAR_HOST_PORT=8787" >> .env
+  fi
 fi
 
-# 3. Запуск через Docker Compose
+# 3. Читаем порт хоста
+RADAR_HOST_PORT=$(grep -E "^RADAR_HOST_PORT=" .env | cut -d '=' -f2- | tr -d ' "' || true)
+RADAR_HOST_PORT=${RADAR_HOST_PORT:-8787}
+
+# 4. Запуск через Docker Compose
 echo "🐳 Сборка и запуск контейнеров (PostgreSQL 17 + pgvector + Radar Node app)..."
 docker compose down || true
 docker compose up -d --build
 
-# 4. Проверка статуса
-echo "⏳ Ожидаем запуск сервисов..."
-sleep 5
-docker compose ps
+# 5. Проверка статуса и healthcheck с ретраями
+echo "⏳ Ожидаем запуск сервисов (порт $RADAR_HOST_PORT)..."
+HEALTH_OK=0
+for i in {1..12}; do
+  sleep 3
+  if curl -fsS "http://127.0.0.1:${RADAR_HOST_PORT}/health" >/dev/null 2>&1; then
+    HEALTH_OK=1
+    break
+  fi
+  echo "Ожидание старта сервиса... ($i/12)"
+done
 
-echo "🩺 Проверяем healthcheck..."
-curl -f http://127.0.0.1:8787/health && echo " 🎉 Radar успешно работает!" || echo "⚠️ Сервис стартует..."
+if [ "$HEALTH_OK" -ne 1 ]; then
+  echo "❌ Healthcheck failed! Radar не ответил 200 OK на http://127.0.0.1:${RADAR_HOST_PORT}/health"
+  docker compose logs --tail 50
+  exit 1
+fi
 
-echo "=============================================================================="
-echo " Radar доступен локально на http://127.0.0.1:8787"
-echo " Настройте Nginx для проксирования на домен (например, radar.profipass.ru):"
-echo "   proxy_pass http://127.0.0.1:8787;"
-echo "=============================================================================="
+echo "🎉 Radar успешно запущен и работает на http://127.0.0.1:${RADAR_HOST_PORT}"

@@ -8,7 +8,7 @@ describe('ingest pipeline', () => {
     const runtime = makeTestRuntime();
     const sink = new MemorySink();
     runtime.sinks.register(sink);
-    const source = runtime.store.createSource({
+    const source = await runtime.store.createSource({
       kind: 'rss',
       title: 'Feed',
       config: { includeKeywords: ['сантехник'] },
@@ -33,15 +33,15 @@ describe('ingest pipeline', () => {
 
     expect(outcome.status).toBe('delivered');
     expect(sink.leads).toHaveLength(1);
-    expect(runtime.store.getStats().deliveredLeads).toBe(1);
-    runtime.store.close();
+    expect((await runtime.store.getStats()).deliveredLeads).toBe(1);
+    await runtime.store.close();
   });
 
   it('deduplicates the same lead twice', async () => {
     const runtime = makeTestRuntime();
     const sink = new MemorySink();
     runtime.sinks.register(sink);
-    const source = runtime.store.createSource({
+    const source = await runtime.store.createSource({
       kind: 'rss',
       title: 'Feed',
       config: { includeKeywords: ['сантехник'] },
@@ -63,14 +63,14 @@ describe('ingest pipeline', () => {
     expect((await ingestRawLead(raw, source, baseDeps)).status).toBe('delivered');
     expect((await ingestRawLead(raw, source, baseDeps)).status).toBe('duplicate');
     expect(sink.leads).toHaveLength(1);
-    runtime.store.close();
+    await runtime.store.close();
   });
 
   it('deduplicates the same title from a different URL', async () => {
     const runtime = makeTestRuntime();
     const sink = new MemorySink();
     runtime.sinks.register(sink);
-    const source = runtime.store.createSource({
+    const source = await runtime.store.createSource({
       kind: 'rss',
       title: 'Feed',
       config: { includeKeywords: ['сантехник'] },
@@ -106,14 +106,14 @@ describe('ingest pipeline', () => {
 
     expect(second.status).toBe('duplicate');
     expect(sink.leads).toHaveLength(1);
-    runtime.store.close();
+    await runtime.store.close();
   });
 
   it('rejects spam and never delivers it', async () => {
     const runtime = makeTestRuntime();
     const sink = new MemorySink();
     runtime.sinks.register(sink);
-    const source = runtime.store.createSource({ kind: 'rss', title: 'Feed' });
+    const source = await runtime.store.createSource({ kind: 'rss', title: 'Feed' });
 
     const outcome = await ingestRawLead(
       {
@@ -134,14 +134,14 @@ describe('ingest pipeline', () => {
     expect(outcome.status).toBe('rejected');
     expect(outcome.reasons).toContain('spam:FAKE_REVIEWS');
     expect(sink.leads).toHaveLength(0);
-    runtime.store.close();
+    await runtime.store.close();
   });
 
   it('rejects a lead when the classifier says it is not an order', async () => {
     const runtime = makeTestRuntime();
     const sink = new MemorySink();
     runtime.sinks.register(sink);
-    const source = runtime.store.createSource({ kind: 'rss', title: 'Feed' });
+    const source = await runtime.store.createSource({ kind: 'rss', title: 'Feed' });
     const classifier: Classifier = {
       async classify() {
         return { isLead: false, confidence: 0.9 };
@@ -167,14 +167,14 @@ describe('ingest pipeline', () => {
 
     expect(outcome.status).toBe('rejected');
     expect(sink.leads).toHaveLength(0);
-    runtime.store.close();
+    await runtime.store.close();
   });
 
   it('continues with rules when the classifier is unavailable', async () => {
     const runtime = makeTestRuntime();
     const sink = new MemorySink();
     runtime.sinks.register(sink);
-    const source = runtime.store.createSource({ kind: 'rss', title: 'Feed' });
+    const source = await runtime.store.createSource({ kind: 'rss', title: 'Feed' });
     const classifier: Classifier = {
       async classify() {
         throw new Error('offline');
@@ -200,6 +200,6 @@ describe('ingest pipeline', () => {
 
     expect(outcome.status).toBe('delivered');
     expect(sink.leads).toHaveLength(1);
-    runtime.store.close();
+    await runtime.store.close();
   });
 });

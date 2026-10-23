@@ -23,18 +23,18 @@ export interface RuntimeOverrides {
   fetchImpl?: typeof fetch;
 }
 
-export function createRuntime(env: Env = loadEnv(), overrides: RuntimeOverrides = {}): Runtime {
+export async function createRuntime(env: Env = loadEnv(), overrides: RuntimeOverrides = {}): Promise<Runtime> {
   const logger = createLogger(env.RADAR_LOG_LEVEL);
   let store: Store;
   if (overrides.store) {
     store = overrides.store;
+    if (store.init) {
+      await store.init();
+    }
   } else if (env.DATABASE_URL) {
     logger.info('Using PostgreSQL storage engine', { url: env.DATABASE_URL.replace(/:[^:@]+@/, ':***@') });
     const pgStore = new PostgresStore(env.DATABASE_URL);
-    // Инициализируем схему синхронно/асинхронно при старте
-    pgStore.init().catch(err => {
-      logger.error('Failed to initialize PostgreSQL schema', { error: err.message });
-    });
+    await pgStore.init();
     store = pgStore;
   } else {
     store = openSqliteStore(env.RADAR_DB_PATH);

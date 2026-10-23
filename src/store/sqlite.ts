@@ -246,21 +246,21 @@ export class SqliteStore implements Store {
     }
   }
 
-  listSources(): SourceRecord[] {
+  async listSources(): Promise<SourceRecord[]> {
     const rows = this.db
       .prepare('SELECT * FROM sources ORDER BY created_at ASC')
       .all() as SourceRow[];
     return rows.map(rowToSource);
   }
 
-  getSource(id: string): SourceRecord | null {
+  async getSource(id: string): Promise<SourceRecord | null> {
     const row = this.db.prepare('SELECT * FROM sources WHERE id = ?').get(id) as
       | SourceRow
       | undefined;
     return row ? rowToSource(row) : null;
   }
 
-  createSource(input: CreateSourceInput): SourceRecord {
+  async createSource(input: CreateSourceInput): Promise<SourceRecord> {
     const now = new Date().toISOString();
     const id = input.id?.trim() || `${input.kind}_${randomUUID().slice(0, 8)}`;
     const record: SourceRecord = {
@@ -289,8 +289,8 @@ export class SqliteStore implements Store {
     return record;
   }
 
-  updateSource(id: string, patch: UpdateSourceInput): SourceRecord | null {
-    const current = this.getSource(id);
+  async updateSource(id: string, patch: UpdateSourceInput): Promise<SourceRecord | null> {
+    const current = await this.getSource(id);
     if (!current) return null;
     const next: SourceRecord = {
       ...current,
@@ -315,30 +315,30 @@ export class SqliteStore implements Store {
     return next;
   }
 
-  deleteSource(id: string): boolean {
+  async deleteSource(id: string): Promise<boolean> {
     const result = this.db.prepare('DELETE FROM sources WHERE id = ?').run(id);
     return result.changes > 0;
   }
 
-  findLeadByFingerprint(fingerprint: string): Lead | null {
+  async findLeadByFingerprint(fingerprint: string): Promise<Lead | null> {
     const row = this.db
       .prepare('SELECT * FROM leads WHERE fingerprint = ?')
       .get(fingerprint) as LeadRow | undefined;
     return row ? rowToLead(row) : null;
   }
 
-  getLead(id: string): Lead | null {
+  async getLead(id: string): Promise<Lead | null> {
     const row = this.db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as
       | LeadRow
       | undefined;
     return row ? rowToLead(row) : null;
   }
 
-  findRecentByTitleKey(
+  async findRecentByTitleKey(
     titleKey: string,
     city: string | undefined,
     sinceIso: string,
-  ): Lead | null {
+  ): Promise<Lead | null> {
     const row = city
       ? (this.db
           .prepare(
@@ -357,7 +357,7 @@ export class SqliteStore implements Store {
     return row ? rowToLead(row) : null;
   }
 
-  insertLead(lead: Lead): boolean {
+  async insertLead(lead: Lead): Promise<boolean> {
     const result = this.db
       .prepare(
         `INSERT OR IGNORE INTO leads (
@@ -395,13 +395,13 @@ export class SqliteStore implements Store {
     return result.changes > 0;
   }
 
-  updateLeadStatus(id: string, status: LeadStatus, deliveredAt?: string): void {
+  async updateLeadStatus(id: string, status: LeadStatus, deliveredAt?: string): Promise<void> {
     this.db
       .prepare('UPDATE leads SET status = ?, delivered_at = ? WHERE id = ?')
       .run(status, deliveredAt ?? null, id);
   }
 
-  listLeads(options: ListLeadsOptions = {}): Lead[] {
+  async listLeads(options: ListLeadsOptions = {}): Promise<Lead[]> {
     const limit = Math.max(1, Math.min(options.limit ?? 50, 5000));
     const clauses: string[] = [];
     const params: Array<string | number> = [];
@@ -455,7 +455,7 @@ export class SqliteStore implements Store {
     return rows.map(rowToLead);
   }
 
-  getStats(): Stats {
+  async getStats(): Promise<Stats> {
     const one = (sql: string, ...params: Array<string | number>): number => {
       const row = this.db.prepare(sql).get(...params) as { count: number } | undefined;
       return row?.count ?? 0;
@@ -472,8 +472,8 @@ export class SqliteStore implements Store {
     };
   }
 
-  getSourceHealth(): SourceHealth[] {
-    const sources = this.listSources();
+  async getSourceHealth(): Promise<SourceHealth[]> {
+    const sources = await this.listSources();
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
 
     const aggregateRows = this.db
@@ -535,7 +535,7 @@ export class SqliteStore implements Store {
     });
   }
 
-  recordRun(run: RunRecord): void {
+  async recordRun(run: RunRecord): Promise<void> {
     this.db
       .prepare(
         `INSERT INTO runs (
@@ -557,7 +557,7 @@ export class SqliteStore implements Store {
       );
   }
 
-  listRuns(limit = 20, sourceId?: string): RunRecord[] {
+  async listRuns(limit = 20, sourceId?: string): Promise<RunRecord[]> {
     const bounded = Math.max(1, Math.min(limit, 200));
     const rows = sourceId
       ? (this.db
@@ -571,12 +571,12 @@ export class SqliteStore implements Store {
     return rows.map(rowToRun);
   }
 
-  recordDelivery(
+  async recordDelivery(
     leadId: string,
     sink: string,
     status: 'sent' | 'failed',
     error?: string,
-  ): void {
+  ): Promise<void> {
     this.db
       .prepare(
         `INSERT INTO deliveries (id, lead_id, sink, status, error, created_at)
@@ -585,7 +585,7 @@ export class SqliteStore implements Store {
       .run(randomUUID(), leadId, sink, status, error ?? null, new Date().toISOString());
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.db.close();
   }
 }
