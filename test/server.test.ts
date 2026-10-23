@@ -435,4 +435,103 @@ describe('http server', () => {
     expect(await runtime.store.getLead(leadId)).toBeNull();
     await runtime.store.close();
   });
+
+  it('updates lead funnel status and applies score feedback', async () => {
+    const runtime = makeRuntime();
+    const sessionId = await makeAdminSession(runtime);
+    const source = await runtime.store.createSource({ kind: 'rss', title: 'Feed' });
+    const now = new Date().toISOString();
+    const leadId = 'lead-funnel-1';
+    await runtime.store.insertLead({
+      id: leadId,
+      sourceId: source.id,
+      title: 'Разработка на Svelte',
+      titleKey: 'разработка на svelte',
+      text: 'Нужно сделать компонент',
+      fingerprint: 'fp-funnel-1',
+      status: 'new',
+      score: 50,
+      reasons: [],
+      createdAt: now,
+    });
+
+    const app = createApp(runtime);
+
+    // 1. Change funnel status to "interesting"
+    const statusRes = await app.request(`/leads/${leadId}/status`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: `radar_session=${sessionId}`,
+        origin: 'http://localhost',
+      },
+      body: formBody({ status: 'interesting' }),
+    });
+    expect(statusRes.status).toBe(302);
+    expect((await runtime.store.getLead(leadId))?.status).toBe('interesting');
+
+    // 2. Feedback "+10 Подходит"
+    const feedbackUp = await app.request(`/leads/${leadId}/feedback`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: `radar_session=${sessionId}`,
+        origin: 'http://localhost',
+      },
+      body: formBody({ feedback: 'up' }),
+    });
+    expect(feedbackUp.status).toBe(302);
+    expect((await runtime.store.getLead(leadId))?.score).toBe(60);
+
+    // 3. API status patch
+    const patchRes = await app.request(`/api/leads/${leadId}/status`, {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer secret',
+        origin: 'http://localhost',
+      },
+      body: JSON.stringify({ status: 'applied' }),
+    });
+    expect(patchRes.status).toBe(200);
+    expect((await runtime.store.getLead(leadId))?.status).toBe('applied');
+
+    await runtime.store.close();
+  });
+
+  it('prevents stored XSS by sanitizing javascript: links', async () => {
+    const runtime = makeRuntime();
+    const sessionId = await makeAdminSession(runtime);
+    const source = await runtime.store.createSource({
+      kind: 'webhook',
+      title: 'Hook',
+      config: { token: 'hook-secret' },
+    });
+    const app = createApp(runtime);
+
+    const ingest = await app.request(`/api/ingest/${source.id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-radar-token': 'hook-secret' },
+      body: JSON.stringify({
+        title: 'XSS Test',
+        text: 'Order description',
+        url: 'javascript:alert(document.cookie)',
+      }),
+    });
+    const result = (await ingest.json()) as { outcomes: Array<{ lead?: { id: string } }> };
+    const leadId = result.outcomes[0]?.lead?.id;
+    expect(leadId).toBeTruthy();
+
+    const lead = await runtime.store.getLead(leadId!);
+    expect(lead?.url).toBeUndefined();
+
+    const page = await app.request(`/leads/${leadId}`, {
+      headers: { cookie: `radar_session=${sessionId}` },
+    });
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).not.toContain('javascript:alert');
+
+    await runtime.store.close();
+  });
 });

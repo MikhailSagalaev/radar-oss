@@ -307,10 +307,22 @@ function toRawLead(body: Record<string, unknown>, sourceId: string): RawLead | n
       ? (body.metadata as Record<string, unknown>)
       : undefined;
 
+  let url = asString(body.url);
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        url = undefined;
+      }
+    } catch {
+      url = undefined;
+    }
+  }
+
   return {
     sourceId,
     externalId: asString(body.externalId),
-    url: asString(body.url),
+    url,
     title: title ?? text ?? '',
     text: text ?? title ?? '',
     author: asString(body.author),
@@ -644,6 +656,42 @@ export function createApp(runtime: Runtime): Hono {
         version: VERSION,
       }),
     );
+  });
+
+  app.post('/leads/:id/status', async (c) => {
+    if (!await canRead(c, runtime)) return c.redirect('/login');
+    const id = c.req.param('id');
+    const body = await c.req.parseBody();
+    const rawStatus = typeof body.status === 'string' ? body.status : '';
+    const validStatuses: LeadStatus[] = ['new', 'interesting', 'applied', 'in_work', 'rejected', 'delivered', 'failed'];
+    if (validStatuses.includes(rawStatus as LeadStatus)) {
+      await runtime.store.updateLeadStatus(id, rawStatus as LeadStatus);
+    }
+    return c.redirect(`/leads/${id}`);
+  });
+
+  app.post('/leads/:id/feedback', async (c) => {
+    if (!await canRead(c, runtime)) return c.redirect('/login');
+    const id = c.req.param('id');
+    const body = await c.req.parseBody();
+    const feedback = typeof body.feedback === 'string' ? body.feedback : '';
+    if (feedback === 'up') {
+      await runtime.store.updateLeadStatus(id, 'interesting', undefined, 10);
+    } else if (feedback === 'down') {
+      await runtime.store.updateLeadStatus(id, 'rejected', undefined, -20);
+    }
+    return c.redirect(`/leads/${id}`);
+  });
+
+  app.patch('/api/leads/:id/status', async (c) => {
+    if (!await canRead(c, runtime)) return c.json({ error: 'unauthorized' }, 401);
+    const id = c.req.param('id');
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const status = typeof body?.status === 'string' ? (body.status as LeadStatus) : undefined;
+    const scoreDelta = typeof body?.scoreDelta === 'number' ? body.scoreDelta : undefined;
+    if (!status) return c.json({ error: 'status_required' }, 400);
+    await runtime.store.updateLeadStatus(id, status, undefined, scoreDelta);
+    return c.json({ ok: true, id, status });
   });
 
   app.post('/sources/:id/toggle', async (c) => {

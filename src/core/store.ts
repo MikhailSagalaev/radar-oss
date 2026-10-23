@@ -53,7 +53,7 @@ export interface Store {
   getLead(id: string): Promise<Lead | null>;
   findRecentByTitleKey(titleKey: string, city: string | undefined, sinceIso: string): Promise<Lead | null>;
   insertLead(lead: Lead): Promise<boolean>;
-  updateLeadStatus(id: string, status: LeadStatus, deliveredAt?: string): Promise<void>;
+  updateLeadStatus(id: string, status: LeadStatus, deliveredAt?: string, scoreDelta?: number): Promise<void>;
   listLeads(options?: ListLeadsOptions): Promise<Lead[]>;
   getStats(): Promise<Stats>;
   getSourceHealth(): Promise<SourceHealth[]>;

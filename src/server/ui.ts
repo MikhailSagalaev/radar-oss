@@ -77,6 +77,9 @@ const KIND_LABELS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   new: 'новый',
+  interesting: 'интересно',
+  applied: 'откликнулся',
+  in_work: 'в работе',
   delivered: 'доставлен',
   rejected: 'отклонён',
   failed: 'ошибка',
@@ -335,6 +338,67 @@ a:hover { text-decoration: underline; }
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
 }
 .dot.warn { background: var(--amber); }
+.dot.info { background: #3b82f6; }
+.search-hero {
+  margin: 12px 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.search-bar {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.search-bar input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13.5px;
+  background: var(--bg);
+  color: var(--ink);
+  transition: all 0.15s ease;
+}
+.search-bar input:focus {
+  outline: 0;
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink), 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+.funnel-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+.funnel-btn {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.funnel-btn:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.funnel-btn.active {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+  font-weight: 600;
+}
 .btn {
   display: inline-flex;
   align-items: center;
@@ -703,13 +767,15 @@ function statusLabel(status: string): string {
 
 function statusDot(status: string): string {
   const cls =
-    status === 'delivered'
+    status === 'in_work' || status === 'delivered'
       ? 'ok'
-      : status === 'failed'
-        ? 'warn'
-        : status === 'rejected'
-          ? 'err'
-          : '';
+      : status === 'interesting' || status === 'applied'
+        ? 'info'
+        : status === 'failed'
+          ? 'warn'
+          : status === 'rejected'
+            ? 'err'
+            : '';
   return `<span class="dot ${cls}"></span>${escapeHtml(statusLabel(status))}`;
 }
 
@@ -818,9 +884,11 @@ export function renderLeadsPage(data: LeadsPageData): string {
   const statusFilters: Array<{ key: string; label: string }> = [
     { key: '', label: 'Все' },
     { key: 'new', label: 'Новые' },
+    { key: 'interesting', label: 'Интересно' },
+    { key: 'applied', label: 'Отклики' },
+    { key: 'in_work', label: 'В работе' },
     { key: 'delivered', label: 'Доставленные' },
     { key: 'rejected', label: 'Отклонённые' },
-    { key: 'failed', label: 'С ошибкой' },
   ];
 
   const hrefFor = (nextStatus: string): string => {
@@ -845,7 +913,7 @@ export function renderLeadsPage(data: LeadsPageData): string {
       ? `<div class="empty">
           <h2>Начните с источника</h2>
           <p>RSS, IMAP или webhook. Дальше Radar сам собирает заказы, убирает дубли и присылает только подходящие.</p>
-          <a class="btn" href="/sources/new">Добавить источник</a>
+          <button class="btn" type="button" onclick="document.getElementById('add-source-dialog')?.showModal()">Добавить источник</button>
         </div>`
       : `<div class="empty">
           <h2>Лидов пока нет</h2>
@@ -854,16 +922,29 @@ export function renderLeadsPage(data: LeadsPageData): string {
         </div>`;
 
   const body = `
-<div class="filters" style="margin-top:12px">
-  <div class="chips">${chips}</div>
-  <form class="search" method="get" action="/">
+<div class="search-hero">
+  <form class="search-form" method="get" action="/">
     ${status ? `<input type="hidden" name="status" value="${escapeHtml(status)}">` : ''}
-    <input name="q" value="${escapeHtml(query)}" placeholder="Поиск по задачам, навыкам и городам" aria-label="Поиск по лидам">
-    <button class="btn ghost" type="submit">Найти</button>
+    <div class="search-bar">
+      <input name="q" id="search-input" value="${escapeHtml(query)}" placeholder="Поиск по задачам, навыкам, категориям или городам... (нажмите / для фокуса)" aria-label="Поиск по заказам">
+      <button class="btn" type="submit">Найти</button>
+    </div>
   </form>
+  <div class="chips">${chips}</div>
 </div>
 
 <div class="list">${rows || empty}</div>`;
+
+  const searchHotkeyScript = `
+${POLL_SCRIPT}
+<script>
+window.addEventListener('keydown', (e) => {
+  if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
+    e.preventDefault();
+    document.getElementById('search-input')?.focus();
+  }
+});
+</script>`;
 
   return layout({
     title: query ? `${query} — Поиск` : 'Заказы',
@@ -872,8 +953,19 @@ export function renderLeadsPage(data: LeadsPageData): string {
     body,
     actions:
       '<button class="btn ghost" type="button" onclick="document.getElementById(\'add-source-dialog\')?.showModal()">Добавить источник</button><button class="btn" data-poll="/api/poll">Опросить все</button>',
-    script: POLL_SCRIPT,
+    script: searchHotkeyScript,
   });
+}
+
+function safeHttpUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.href;
+    }
+  } catch {}
+  return undefined;
 }
 
 export function renderLeadPage(data: LeadPageData): string {
@@ -911,17 +1003,35 @@ document.getElementById('copy-lead')?.addEventListener('click', async (event) =>
       </div>`
     : '';
 
+  const cleanUrl = safeHttpUrl(lead.url);
+
   const body = `
-<a class="back" href="/">← Все лиды</a>
+<a class="back" href="/">Все заказы</a>
 <div class="page-head">
   <div>
     <h1>${escapeHtml(leadTitle(lead))}</h1>
     <p class="muted small">${statusDot(lead.status)} · ${formatRelative(lead.createdAt)}</p>
   </div>
   <div class="actions">
-    ${lead.url ? `<a class="btn" href="${escapeHtml(lead.url)}" target="_blank" rel="noreferrer">Открыть источник</a>` : ''}
+    ${cleanUrl ? `<a class="btn" href="${escapeHtml(cleanUrl)}" target="_blank" rel="noopener noreferrer">Открыть оригинал</a>` : ''}
     <button class="btn ghost" id="copy-lead" type="button">Копировать текст</button>
   </div>
+</div>
+
+<div class="funnel-bar">
+  <form method="post" action="/leads/${escapeHtml(lead.id)}/status" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <span class="small muted" style="margin-right:4px">Статус:</span>
+    <button name="status" value="new" class="funnel-btn ${lead.status === 'new' ? 'active' : ''}">Новый</button>
+    <button name="status" value="interesting" class="funnel-btn ${lead.status === 'interesting' ? 'active' : ''}">Интересно</button>
+    <button name="status" value="applied" class="funnel-btn ${lead.status === 'applied' ? 'active' : ''}">Откликнулся</button>
+    <button name="status" value="in_work" class="funnel-btn ${lead.status === 'in_work' ? 'active' : ''}">В работе</button>
+    <button name="status" value="rejected" class="funnel-btn ${lead.status === 'rejected' ? 'active' : ''}">Отклонён</button>
+  </form>
+  <form method="post" action="/leads/${escapeHtml(lead.id)}/feedback" style="display:flex;gap:6px;align-items:center">
+    <span class="small muted" style="margin-right:4px">Оценка:</span>
+    <button name="feedback" value="up" class="btn ghost small" title="Подходит">+10 Подходит</button>
+    <button name="feedback" value="down" class="btn ghost small" title="Мусор">-20 Мусор</button>
+  </form>
 </div>
 
 <div class="detail-grid">
@@ -1287,15 +1397,15 @@ document.addEventListener('DOMContentLoaded', () => {
     <h2>Возможности</h2>
     <div style="display:grid;gap:12px;margin-bottom:28px">
       <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px">
-        <div style="font-weight:600;margin-bottom:4px">🖱️ Контекстное меню по правому клику</div>
+        <div style="font-weight:600;margin-bottom:4px">Контекстное меню по правому клику</div>
         <div class="muted small">Выделите текст любого заказа на странице (Авито, Telegram Web, форум) → правый клик → «Отправить заказ в Radar». Заказ мгновенно сохраняется в общую базу.</div>
       </div>
       <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px">
-        <div style="font-weight:600;margin-bottom:4px">⌨️ Быстрая отправка всей страницы (Alt+Shift+R)</div>
+        <div style="font-weight:600;margin-bottom:4px">Быстрая отправка всей страницы (Alt+Shift+R)</div>
         <div class="muted small">Нажмите горячие клавиши или иконку на панели расширений для автоматического захвата заголовка, URL и описания страницы.</div>
       </div>
       <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px">
-        <div style="font-weight:600;margin-bottom:4px">👥 Авторство контрибьютора комьюнити</div>
+        <div style="font-weight:600;margin-bottom:4px">Авторство контрибьютора комьюнити</div>
         <div class="muted small">В настройках расширения каждый участник вводит свой никнейм (@telegram), и все найденные им лиды в базе подписываются его именем.</div>
       </div>
     </div>

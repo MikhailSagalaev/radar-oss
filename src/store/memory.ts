@@ -99,12 +99,15 @@ export class MemoryStore implements Store {
     return true;
   }
 
-  async updateLeadStatus(id: string, status: LeadStatus, deliveredAt?: string): Promise<void> {
+  async updateLeadStatus(id: string, status: LeadStatus, deliveredAt?: string, scoreDelta?: number): Promise<void> {
     const lead = this.leads.get(id);
     if (lead) {
       lead.status = status;
       if (deliveredAt !== undefined) {
         lead.deliveredAt = deliveredAt;
+      }
+      if (typeof scoreDelta === 'number') {
+        lead.score += scoreDelta;
       }
     }
   }

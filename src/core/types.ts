@@ -1,6 +1,14 @@
 export type SourceKind = 'rss' | 'telegram' | 'kwork' | 'webhook' | 'imap';
 export type AccessKind = 'official' | 'public' | 'user-provided' | 'auth-required';
-export type LeadStatus = 'new' | 'delivered' | 'duplicate' | 'rejected' | 'failed';
+export type LeadStatus =
+  | 'new'
+  | 'delivered'
+  | 'duplicate'
+  | 'rejected'
+  | 'failed'
+  | 'interesting'
+  | 'applied'
+  | 'in_work';
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export interface Logger {

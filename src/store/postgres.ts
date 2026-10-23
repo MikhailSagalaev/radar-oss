@@ -263,17 +263,24 @@ export class PostgresStore implements Store {
     }
   }
 
-  async updateLeadStatus(id: string, status: LeadStatus, deliveredAt?: string): Promise<void> {
+  async updateLeadStatus(id: string, status: LeadStatus, deliveredAt?: string, scoreDelta?: number): Promise<void> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query(
-        `UPDATE leads SET status = $1, delivered_at = $2 WHERE id = $3`,
-        [status, deliveredAt ? new Date(deliveredAt) : null, id]
-      );
+      if (typeof scoreDelta === 'number') {
+        await client.query(
+          `UPDATE leads SET status = $1, delivered_at = $2, score = score + $3 WHERE id = $4`,
+          [status, deliveredAt ? new Date(deliveredAt) : null, scoreDelta, id]
+        );
+      } else {
+        await client.query(
+          `UPDATE leads SET status = $1, delivered_at = $2 WHERE id = $3`,
+          [status, deliveredAt ? new Date(deliveredAt) : null, id]
+        );
+      }
       await client.query(
         `INSERT INTO outbox_events (event_type, payload) VALUES ($1, $2::jsonb)`,
-        ['lead.status_updated', JSON.stringify({ leadId: id, status, deliveredAt })]
+        ['lead.status_updated', JSON.stringify({ leadId: id, status, deliveredAt, scoreDelta })]
       );
       await client.query('COMMIT');
     } catch (err) {
