@@ -3,8 +3,8 @@
   "name": "Radar — отправка заказов",
   "version": "0.4.0",
   "description": "Отправляет заказы и страницы в Radar в один клик или через контекстное меню.",
-  "permissions": ["activeTab", "scripting", "storage", "contextMenus"],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "permissions": ["activeTab", "scripting", "storage", "contextMenus", "notifications"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js"
   },

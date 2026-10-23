@@ -510,4 +510,38 @@ export class PostgresStore implements Store {
       updatedAt: new Date(r.updated_at).toISOString(),
     }));
   }
+
+  async createSession(sessionId: string, expiresAt: string): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO sessions (id, expires_at)
+       VALUES ($1, $2::timestamptz)
+       ON CONFLICT (id) DO UPDATE SET expires_at = $2::timestamptz`,
+      [sessionId, expiresAt]
+    );
+  }
+
+  async validateSession(sessionId: string): Promise<boolean> {
+    const res = await this.pool.query(
+      `SELECT 1 FROM sessions WHERE id = $1 AND expires_at > NOW()`,
+      [sessionId]
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.pool.query(`DELETE FROM sessions WHERE id = $1`, [sessionId]);
+  }
+
+  async deleteLead(id: string): Promise<boolean> {
+    const res = await this.pool.query(`DELETE FROM leads WHERE id = $1`, [id]);
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  async cleanupOldLeads(retentionDays: number): Promise<number> {
+    const res = await this.pool.query(
+      `DELETE FROM leads WHERE created_at < NOW() - ($1 || ' days')::interval`,
+      [retentionDays]
+    );
+    return res.rowCount ?? 0;
+  }
 }

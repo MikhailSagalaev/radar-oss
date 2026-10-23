@@ -67,5 +67,12 @@ export interface Store {
   getPendingDeliveries?(limit?: number): Promise<LeadDeliveryRecord[]>;
   getLeadDeliveries?(leadId: string): Promise<LeadDeliveryRecord[]>;
 
+  createSession?(sessionId: string, expiresAt: string): Promise<void>;
+  validateSession?(sessionId: string): Promise<boolean>;
+  deleteSession?(sessionId: string): Promise<void>;
+
+  deleteLead?(id: string): Promise<boolean>;
+  cleanupOldLeads?(retentionDays: number): Promise<number>;
+
   close(): Promise<void>;
 }

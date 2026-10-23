@@ -169,12 +169,20 @@ describe('http server', () => {
     await runtime.store.close();
   });
 
+  async function makeAdminSession(runtime: Runtime): Promise<string> {
+    const sessionId = 'test-session-123';
+    const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
+    await runtime.store.createSession?.(sessionId, expiresAt);
+    return sessionId;
+  }
+
   it('creates a source from the dashboard form', async () => {
     const runtime = makeRuntime();
+    const sessionId = await makeAdminSession(runtime);
     const app = createApp(runtime);
 
     const page = await app.request('/sources/new', {
-      headers: { cookie: 'radar_token=secret' },
+      headers: { cookie: `radar_session=${sessionId}` },
     });
     expect(page.status).toBe(200);
     expect(await page.text()).toContain('Новый источник');
@@ -183,7 +191,8 @@ describe('http server', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/x-www-form-urlencoded',
-        cookie: 'radar_token=secret',
+        cookie: `radar_session=${sessionId}`,
+        origin: 'http://localhost',
       },
       body: formBody({
         kind: 'rss',
@@ -205,13 +214,15 @@ describe('http server', () => {
 
   it('shows a webhook token once after creation', async () => {
     const runtime = makeRuntime();
+    const sessionId = await makeAdminSession(runtime);
     const app = createApp(runtime);
 
     const response = await app.request('/sources', {
       method: 'POST',
       headers: {
         'content-type': 'application/x-www-form-urlencoded',
-        cookie: 'radar_token=secret',
+        cookie: `radar_session=${sessionId}`,
+        origin: 'http://localhost',
       },
       body: formBody({ kind: 'webhook', title: 'Browser' }),
     });
@@ -233,24 +244,27 @@ describe('http server', () => {
       headers: {
         'content-type': 'application/x-www-form-urlencoded',
         'x-forwarded-proto': 'https',
+        origin: 'https://localhost',
       },
       body: formBody({ token: 'secret' }),
     });
 
     expect(response.status).toBe(302);
     expect(response.headers.get('set-cookie')).toContain('Secure');
+    expect(response.headers.get('set-cookie')).toContain('radar_session=');
     await runtime.store.close();
   });
 
   it('rejects cross-origin form posts', async () => {
     const runtime = makeRuntime();
+    const sessionId = await makeAdminSession(runtime);
     const app = createApp(runtime);
 
     const response = await app.request('/sources', {
       method: 'POST',
       headers: {
         'content-type': 'application/x-www-form-urlencoded',
-        cookie: 'radar_token=secret',
+        cookie: `radar_session=${sessionId}`,
         origin: 'https://evil.example',
       },
       body: formBody({ kind: 'rss', title: 'Evil', url: 'https://example.com/rss' }),
@@ -261,18 +275,33 @@ describe('http server', () => {
     await runtime.store.close();
   });
 
-  it('serves the leads and sources pages', async () => {
+  it('ignores ?token= query parameter for security', async () => {
     const runtime = makeRuntime();
     const app = createApp(runtime);
 
+    const res = await app.request('/api/leads?token=secret');
+    expect(res.status).toBe(401);
+
+    const webRes = await app.request('/?token=secret');
+    expect(webRes.status).toBe(302);
+    expect(webRes.headers.get('location')).toBe('/login');
+
+    await runtime.store.close();
+  });
+
+  it('serves the leads and sources pages', async () => {
+    const runtime = makeRuntime();
+    const sessionId = await makeAdminSession(runtime);
+    const app = createApp(runtime);
+
     const leads = await app.request('/', {
-      headers: { cookie: 'radar_token=secret' },
+      headers: { cookie: `radar_session=${sessionId}` },
     });
     expect(leads.status).toBe(200);
     expect(await leads.text()).toContain('Radar');
 
     const sources = await app.request('/sources', {
-      headers: { cookie: 'radar_token=secret' },
+      headers: { cookie: `radar_session=${sessionId}` },
     });
     expect(sources.status).toBe(200);
     expect(await sources.text()).toContain('Источники');
@@ -281,6 +310,7 @@ describe('http server', () => {
 
   it('serves a lead detail page', async () => {
     const runtime = makeRuntime();
+    const sessionId = await makeAdminSession(runtime);
     const source = await runtime.store.createSource({
       kind: 'webhook',
       title: 'Inbound',
@@ -303,7 +333,7 @@ describe('http server', () => {
     expect(leadId).toBeTruthy();
 
     const page = await app.request(`/leads/${leadId}`, {
-      headers: { cookie: 'radar_token=secret' },
+      headers: { cookie: `radar_session=${sessionId}` },
     });
     expect(page.status).toBe(200);
     expect(await page.text()).toContain('Прорвало трубу');
@@ -312,6 +342,7 @@ describe('http server', () => {
 
   it('edits a source and keeps a webhook token', async () => {
     const runtime = makeRuntime();
+    const sessionId = await makeAdminSession(runtime);
     const source = await runtime.store.createSource({
       kind: 'webhook',
       title: 'Old title',
@@ -320,7 +351,7 @@ describe('http server', () => {
     const app = createApp(runtime);
 
     const form = await app.request(`/sources/${source.id}/edit`, {
-      headers: { cookie: 'radar_token=secret' },
+      headers: { cookie: `radar_session=${sessionId}` },
     });
     expect(form.status).toBe(200);
     expect(await form.text()).toContain('Редактировать источник');
@@ -329,7 +360,8 @@ describe('http server', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/x-www-form-urlencoded',
-        cookie: 'radar_token=secret',
+        cookie: `radar_session=${sessionId}`,
+        origin: 'http://localhost',
       },
       body: formBody({ title: 'New title', city: 'Ставрополь' }),
     });
@@ -343,22 +375,64 @@ describe('http server', () => {
 
   it('toggles and deletes a source from the dashboard', async () => {
     const runtime = makeRuntime();
+    const sessionId = await makeAdminSession(runtime);
     const source = await runtime.store.createSource({ kind: 'rss', title: 'Toggle me' });
     const app = createApp(runtime);
 
     const toggle = await app.request(`/sources/${source.id}/toggle`, {
       method: 'POST',
-      headers: { cookie: 'radar_token=secret' },
+      headers: {
+        cookie: `radar_session=${sessionId}`,
+        origin: 'http://localhost',
+      },
     });
     expect(toggle.status).toBe(302);
     expect((await runtime.store.getSource(source.id))?.enabled).toBe(false);
 
     const remove = await app.request(`/sources/${source.id}/delete`, {
       method: 'POST',
-      headers: { cookie: 'radar_token=secret' },
+      headers: {
+        cookie: `radar_session=${sessionId}`,
+        origin: 'http://localhost',
+      },
     });
     expect(remove.status).toBe(302);
     expect(await runtime.store.getSource(source.id)).toBeNull();
+    await runtime.store.close();
+  });
+
+  it('supports GDPR erasure with DELETE /api/leads/:id', async () => {
+    const runtime = makeRuntime();
+    const app = createApp(runtime);
+    const source = await runtime.store.createSource({ kind: 'rss', title: 'Feed' });
+    const now = new Date().toISOString();
+    const leadId = 'lead-gdpr-1';
+    await runtime.store.insertLead({
+      id: leadId,
+      sourceId: source.id,
+      externalId: 'ext-gdpr-1',
+      title: 'Удалить меня',
+      titleKey: 'удалить меня',
+      text: 'Персональные данные Иванова Ивана',
+      fingerprint: 'fp-gdpr-1',
+      status: 'new',
+      score: 50,
+      reasons: [],
+      createdAt: now,
+    });
+
+    const notFound = await app.request('/api/leads/non-existent-id', {
+      method: 'DELETE',
+      headers: { authorization: 'Bearer secret', origin: 'http://localhost' },
+    });
+    expect(notFound.status).toBe(404);
+
+    const deleted = await app.request(`/api/leads/${leadId}`, {
+      method: 'DELETE',
+      headers: { authorization: 'Bearer secret', origin: 'http://localhost' },
+    });
+    expect(deleted.status).toBe(200);
+    expect(await runtime.store.getLead(leadId)).toBeNull();
     await runtime.store.close();
   });
 });

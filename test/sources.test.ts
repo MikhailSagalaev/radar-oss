@@ -53,4 +53,29 @@ describe('source adapters', () => {
     expect(adapter?.poll).toBeUndefined();
     expect(adapter?.access).toBe('user-provided');
   });
+
+  it('blocks private, loopback, and metadata IPs via SSRF protection', async () => {
+    const { isPrivateOrBlockedIp, assertSafeUrl } = await import('../src/core/ssrf.ts');
+
+    expect(isPrivateOrBlockedIp('127.0.0.1')).toBe(true);
+    expect(isPrivateOrBlockedIp('10.0.0.1')).toBe(true);
+    expect(isPrivateOrBlockedIp('172.16.0.1')).toBe(true);
+    expect(isPrivateOrBlockedIp('192.168.1.1')).toBe(true);
+    expect(isPrivateOrBlockedIp('169.254.169.254')).toBe(true);
+    expect(isPrivateOrBlockedIp('::1')).toBe(true);
+    expect(isPrivateOrBlockedIp('fc00::1')).toBe(true);
+    expect(isPrivateOrBlockedIp('fe80::1')).toBe(true);
+    expect(isPrivateOrBlockedIp('8.8.8.8')).toBe(false);
+    expect(isPrivateOrBlockedIp('1.1.1.1')).toBe(false);
+
+    await expect(assertSafeUrl('http://169.254.169.254/latest/meta-data')).rejects.toThrow(
+      /private\/internal IP/,
+    );
+    await expect(assertSafeUrl('http://127.0.0.1:8080/admin')).rejects.toThrow(
+      /private\/internal IP/,
+    );
+    await expect(assertSafeUrl('ftp://example.com/rss')).rejects.toThrow(
+      /Only http: and https:/i,
+    );
+  });
 });

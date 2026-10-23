@@ -163,4 +163,39 @@ describe('store', () => {
     expect(await store.listRuns(10, source.id)).toHaveLength(2);
     await store.close();
   });
+
+  it('handles sessions and retention cleanup', async () => {
+    const store = new MemoryStore();
+    const source = await store.createSource({ kind: 'rss', title: 'Feed' });
+
+    // Session testing
+    await store.createSession('session-1', new Date(Date.now() + 10_000).toISOString());
+    expect(await store.validateSession('session-1')).toBe(true);
+    expect(await store.validateSession('unknown-session')).toBe(false);
+
+    await store.deleteSession('session-1');
+    expect(await store.validateSession('session-1')).toBe(false);
+
+    // Retention cleanup testing
+    const oldDate = new Date(Date.now() - 40 * 24 * 3600 * 1000).toISOString();
+    const recentDate = new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString();
+
+    await store.insertLead(makeLead({ sourceId: source.id, id: 'lead-old', createdAt: oldDate }));
+    await store.insertLead(
+      makeLead({
+        sourceId: source.id,
+        id: 'lead-recent',
+        fingerprint: 'fp-recent',
+        externalId: 'ext-recent',
+        createdAt: recentDate,
+      }),
+    );
+
+    const deletedCount = await store.cleanupOldLeads(30);
+    expect(deletedCount).toBe(1);
+    expect(await store.getLead('lead-old')).toBeNull();
+    expect(await store.getLead('lead-recent')).not.toBeNull();
+
+    await store.close();
+  });
 });

@@ -29,6 +29,7 @@ export interface Env {
   WEBHOOK_SECRET?: string;
   RADAR_CONSOLE_SINK: boolean;
   RADAR_PUBLIC_READ: boolean;
+  RADAR_RETENTION_DAYS: number;
   RADAR_LOG_LEVEL: LogLevel;
   PORT: number;
 }

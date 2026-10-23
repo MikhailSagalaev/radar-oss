@@ -22,6 +22,7 @@ export class MemoryStore implements Store {
   private runs: RunRecord[] = [];
   private deliveries: Array<{ id: string; leadId: string; sink: string; status: string; error?: string; createdAt: string }> = [];
   private leadDeliveries = new Map<string, LeadDeliveryRecord>();
+  private sessions = new Map<string, { id: string; expiresAt: string }>();
 
   async init(): Promise<void> {}
 
@@ -255,6 +256,41 @@ export class MemoryStore implements Store {
       .sort((a, b) => a.sink.localeCompare(b.sink));
   }
 
+  async createSession(sessionId: string, expiresAt: string): Promise<void> {
+    this.sessions.set(sessionId, { id: sessionId, expiresAt });
+  }
+
+  async validateSession(sessionId: string): Promise<boolean> {
+    const s = this.sessions.get(sessionId);
+    if (!s) return false;
+    return s.expiresAt > new Date().toISOString();
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    this.sessions.delete(sessionId);
+  }
+
+  async deleteLead(id: string): Promise<boolean> {
+    const lead = this.leads.get(id);
+    if (lead) {
+      this.leadsByFingerprint.delete(lead.fingerprint);
+    }
+    return this.leads.delete(id);
+  }
+
+  async cleanupOldLeads(retentionDays: number): Promise<number> {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 3600 * 1000).toISOString();
+    let removed = 0;
+    for (const [id, lead] of this.leads.entries()) {
+      if (lead.createdAt < cutoff) {
+        this.leadsByFingerprint.delete(lead.fingerprint);
+        this.leads.delete(id);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   async close(): Promise<void> {
     this.sources.clear();
     this.leads.clear();
@@ -262,5 +298,6 @@ export class MemoryStore implements Store {
     this.runs = [];
     this.deliveries = [];
     this.leadDeliveries.clear();
+    this.sessions.clear();
   }
 }

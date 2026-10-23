@@ -41,6 +41,7 @@ const envSchema = z.object({
   WEBHOOK_SECRET: optionalString,
   RADAR_CONSOLE_SINK: booleanFromEnv(true),
   RADAR_PUBLIC_READ: booleanFromEnv(false),
+  RADAR_RETENTION_DAYS: z.coerce.number().int().positive().default(180),
   RADAR_LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   PORT: z.coerce.number().int().positive().default(8787),
 });
