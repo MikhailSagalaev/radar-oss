@@ -1,47 +1,43 @@
-# Radar
+# Open Radar
 
 [![CI](https://github.com/MikhailSagalaev/radar-oss/actions/workflows/ci.yml/badge.svg)](https://github.com/MikhailSagalaev/radar-oss/actions/workflows/ci.yml)
 
-Self-hosted lead pipeline for public order sources.
+Open Radar — открытая, честная и децентрализованная библиотека вакансий (`job`) и заказов (`gig`), где качество данных регулируется сообществом.
 
-Radar watches the sources you configure, normalizes new orders, removes duplicates, filters spam, scores relevance and delivers leads to Telegram, a webhook or the console. It is a small, inspectable alternative to paid "lead radar" channels.
+Включает персональный автономный пайплайн для сбора заказов и распределённый хаб сообщества с голосованием за полезность, скам и актуальность.
 
-**Status: early v0.3.0.** It is not a hosted service and it does not promise to scrape every marketplace. It gives you a pipeline, a few working adapters and a clear contract for adding more.
+[Философия и Дорожная карта проекта](docs/ROADMAP_AND_PHILOSOPHY.md) | [Архитектура Хаба на 1 млрд записей](docs/ARCHITECTURE.md)
 
-![Radar leads](docs/screenshots/dashboard.png)
+**Live Demo:** [https://radar.91.229.8.32.nip.io](https://radar.91.229.8.32.nip.io) (гостевой режим открыт без авторизации).
 
-## Why
+---
 
-Small teams and freelancers often pay for Telegram channels that resell the same public orders. The collection layer is not the moat; relevance, speed and routing are. Radar makes the collection layer free and replaceable:
+## Миссия и Философия
 
-- one process, PostgreSQL 17 with pgvector, transactional outbox pattern;
-- rules-first filtering, optional LLM classification with your own key;
-- sources are adapters, not hard-coded scrapers;
-- data stays on your server.
+Рынок труда и фриланса монополизирован закрытыми досками, которые берут плату за каждый отклик и годами хранят «мёртвые» вакансии ради трафика.
 
-## What it is not
+Философия **Open Radar**:
+1. **Бесплатный доступ к информации:** Данные о вакансиях и заказах должны быть доступны без платных стен и скрытых комиссий.
+2. **Коллективный отбор (Community Curation):** Сообщество голосует (`полезно`, `мусор`, `скам`, `закрыто`). Вес голоса зависит от прозрачной репутации.
+3. **Децентрализация (Hub + Nodes):** Запускайте изолированный радар на своём сервере со своими секретными источниками или подключайтесь к общему хабу.
+4. **Защита приватности (Privacy First):** Личные контакты авторов не хранятся — в базе только суть задачи и ссылка на первоисточник.
+5. **Zero Emoji & Чистый дизайн:** Строгая швейцарская типографика, разделительные линии и мгновенный поиск по горячей клавише `/`.
 
-- Not a hosted SaaS and not a public lead database.
-- Not a CAPTCHA bypass, not an account farm, not a private-group scraper.
-- Not an auto-responder. It collects and routes; a human decides.
-- Not a guarantee of completeness. Public pages change, and adapters break.
+---
 
-## Features
+## Возможности
 
-- RSS/Atom, IMAP, public Telegram channels, Kwork public projects and inbound webhooks.
-- URL canonicalization, fingerprint deduplication and cross-source title matching.
-- Spam and scam rules for the categories that are never a real order.
-- Optional OpenAI-compatible classifier; the pipeline works without it.
-- Scoring by keywords, budget, freshness, city and source trust.
-- Sinks: console, Telegram Bot API, generic webhook.
-- Per-source health: 24-hour counters, success rate, last run and a detail page.
-- CLI, HTTP API and a minimal server-rendered dashboard.
-- Lead inbox: search, status filters, an internal lead page with full text, score and source.
-- Add, edit, enable, disable and delete sources from the dashboard; webhook tokens are shown once.
-- A Manifest V3 browser extension for sending the current page to a webhook source.
-- Tests with fixtures for every adapter.
+- **Два режима данных:** Заказы фриланса (`gig`) и вакансии (`job`) с вилками зарплат, стеком и форматом работы (удалёнка/офис).
+- **Источники:** RSS/Atom, IMAP, публичные Telegram-каналы, Kwork, открытые API досок, ATS-системы и входящие вебхуки.
+- **Полнотекстовый поиск:** PostgreSQL 17 GIN-индекс с русским стеммингом `to_tsvector('russian', ...)`.
+- **3-уровневый дедупликатор:** Нормализация URL + SimHash текста + `pgvector` косинусное сходство между разными площадками.
+- **Продуктовая воронка откликов:** `new` → `interesting` → `applied` → `in_work` → `rejected`.
+- **Быстрая обратная связь:** Кнопки «+10 Подходит» и «-20 Мусор» прямо в карточке задачи.
+- **Безопасность энтерпрайз-уровня:** Session ID в HttpOnly/Secure куках, SSRF DNS-валидатор (блокировка приватных IP и metadata), CSRF Origin Guard, защита от Stored XSS.
+- **Transactional Outbox:** Доставка в Telegram и вебхуки с независимыми повторами и HMAC-SHA256 подписью.
+- **Браузерное расширение (Manifest V3):** Отправка любого заказа или вакансии со страницы в 1 клик.
 
-## Quick start
+## Быстрый старт
 
 Requirements: Docker Compose (recommended) or Node.js 22.12+, pnpm 11, and PostgreSQL 17.
 

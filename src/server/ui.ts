@@ -640,13 +640,13 @@ function layout(input: {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(input.title)} · Radar</title>
+<title>${escapeHtml(input.title)} · Open Radar</title>
 <style>${STYLE}</style>
 </head>
 <body>
 <main>
 <header class="top">
-  <a class="brand" href="/">Radar</a>
+  <a class="brand" href="/">Open Radar</a>
   <span class="version">v${escapeHtml(input.version)}</span>
   <nav class="nav">
     ${nav('leads', 'Заказы', '/')}
