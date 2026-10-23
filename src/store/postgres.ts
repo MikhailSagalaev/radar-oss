@@ -44,7 +44,11 @@ export class PostgresStore implements Store {
     }
   }
 
+  private closed = false;
+
   async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
     await this.pool.end();
   }
 
@@ -109,28 +113,66 @@ export class PostgresStore implements Store {
   }
 
   async updateSource(id: string, patch: UpdateSourceInput): Promise<SourceRecord | null> {
-    const current = await this.getSource(id);
-    if (!current) return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const res = await client.query<{
+        id: string;
+        kind: SourceKind;
+        title: string;
+        enabled: boolean;
+        config_json: unknown;
+        created_at: string;
+        updated_at: string;
+      }>(`SELECT * FROM sources WHERE id = $1 FOR UPDATE`, [id]);
 
-    const title = patch.title ?? current.title;
-    const enabled = patch.enabled ?? current.enabled;
-    const config = JSON.stringify(patch.config ?? current.config);
-    const now = new Date().toISOString();
+      const current = res.rows[0];
+      if (!current) {
+        await client.query('ROLLBACK');
+        return null;
+      }
 
-    await this.pool.query(
-      `UPDATE sources SET title = $1, enabled = $2, config_json = $3::jsonb, updated_at = $4 WHERE id = $5`,
-      [title, enabled, config, now, id]
-    );
+      const parsedConfig =
+        typeof current.config_json === 'string'
+          ? JSON.parse(current.config_json)
+          : (current.config_json as Record<string, unknown>) ?? {};
 
-    return {
-      id,
-      kind: current.kind,
-      title,
-      enabled,
-      config: patch.config ?? current.config,
-      createdAt: current.createdAt,
-      updatedAt: now,
-    };
+      const title = patch.title ?? current.title;
+      const enabled = patch.enabled ?? current.enabled;
+      const newConfig = patch.config ? { ...parsedConfig, ...patch.config } : parsedConfig;
+      const now = new Date().toISOString();
+
+      const updateRes = await client.query<{
+        id: string;
+        kind: SourceKind;
+        title: string;
+        enabled: boolean;
+        config_json: unknown;
+        created_at: string;
+        updated_at: string;
+      }>(
+        `UPDATE sources SET title = $1, enabled = $2, config_json = $3::jsonb, updated_at = $4 WHERE id = $5 RETURNING *`,
+        [title, enabled, JSON.stringify(newConfig), now, id],
+      );
+
+      await client.query('COMMIT');
+
+      const updated = updateRes.rows[0]!;
+      return {
+        id: updated.id,
+        kind: updated.kind,
+        title: updated.title,
+        enabled: Boolean(updated.enabled),
+        config: (typeof updated.config_json === 'string' ? JSON.parse(updated.config_json) : updated.config_json) as Record<string, unknown>,
+        createdAt: new Date(updated.created_at).toISOString(),
+        updatedAt: new Date(updated.updated_at).toISOString(),
+      };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async deleteSource(id: string): Promise<boolean> {
@@ -257,16 +299,30 @@ export class PostgresStore implements Store {
       params.push(options.sourceId);
     }
     if (options.query && options.query.trim().length > 0) {
-      const q = `%${options.query.trim()}%`;
-      conditions.push(`(
-        title ILIKE $${idx} OR
-        text ILIKE $${idx} OR
-        city ILIKE $${idx} OR
-        category ILIKE $${idx} OR
-        title_key ILIKE $${idx}
-      )`);
-      params.push(q);
-      idx++;
+      const trimmed = options.query.trim();
+      if (trimmed.length >= 3) {
+        conditions.push(`(
+          to_tsvector('russian', title || ' ' || text) @@ websearch_to_tsquery('russian', $${idx})
+          OR title ILIKE $${idx + 1}
+          OR text ILIKE $${idx + 1}
+          OR city ILIKE $${idx + 1}
+          OR category ILIKE $${idx + 1}
+        )`);
+        params.push(trimmed);
+        params.push(`%${trimmed}%`);
+        idx += 2;
+      } else {
+        const q = `%${trimmed}%`;
+        conditions.push(`(
+          title ILIKE $${idx} OR
+          text ILIKE $${idx} OR
+          city ILIKE $${idx} OR
+          category ILIKE $${idx} OR
+          title_key ILIKE $${idx}
+        )`);
+        params.push(q);
+        idx++;
+      }
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

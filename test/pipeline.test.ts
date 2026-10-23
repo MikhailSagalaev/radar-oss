@@ -343,4 +343,50 @@ describe('ingest pipeline', () => {
 
     await runtime.store.close();
   });
+
+  it('limits parallel source polling concurrency with pLimit', async () => {
+    const { pLimit, pollAll } = await import('../src/pipeline/poll.ts');
+
+    // Test pLimit concurrency
+    const limit = pLimit(2);
+    let running = 0;
+    let maxRunning = 0;
+
+    const task = async () => {
+      running++;
+      maxRunning = Math.max(maxRunning, running);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      running--;
+    };
+
+    await Promise.all([limit(task), limit(task), limit(task), limit(task), limit(task)]);
+    expect(maxRunning).toBe(2);
+
+    // Test pollAll with concurrency
+    const runtime = makeTestRuntime();
+    for (let i = 1; i <= 4; i++) {
+      await runtime.store.createSource({
+        kind: 'rss',
+        title: `Feed ${i}`,
+        config: { url: `https://example.com/feed-${i}.xml` },
+      });
+    }
+
+    const summaries = await pollAll({
+      store: runtime.store,
+      sinks: runtime.sinks,
+      logger: runtime.logger,
+      env: runtime.env,
+      sources: runtime.sources,
+      fetchImpl: async () =>
+        new Response(
+          '<rss version="2.0"><channel><title>T</title><link>https://example.com</link><description>D</description><item><title>Order</title><link>https://example.com/1</link><description>Desc</description></item></channel></rss>',
+          { status: 200 },
+        ),
+    });
+
+    expect(summaries).toHaveLength(4);
+    expect(summaries.every((s) => s.found === 1)).toBe(true);
+    await runtime.store.close();
+  });
 });

@@ -19,6 +19,7 @@ export interface Env {
   RADAR_USER_AGENT: string;
   RADAR_HTTP_TIMEOUT_MS: number;
   RADAR_POLL_INTERVAL_SEC: number;
+  RADAR_POLL_CONCURRENCY: number;
   RADAR_LLM_ENABLED: boolean;
   OPENAI_API_KEY?: string;
   OPENAI_BASE_URL: string;

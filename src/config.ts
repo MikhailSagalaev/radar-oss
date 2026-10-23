@@ -31,6 +31,7 @@ const envSchema = z.object({
     .default('RadarBot/0.3.0 (+https://github.com/MikhailSagalaev/radar-oss)'),
   RADAR_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   RADAR_POLL_INTERVAL_SEC: z.coerce.number().int().positive().default(300),
+  RADAR_POLL_CONCURRENCY: z.coerce.number().int().positive().default(4),
   RADAR_LLM_ENABLED: booleanFromEnv(false),
   OPENAI_API_KEY: optionalString,
   OPENAI_BASE_URL: z.string().url().default('https://api.openai.com/v1'),

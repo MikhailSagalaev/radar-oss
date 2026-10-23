@@ -130,14 +130,42 @@ export async function pollSource(
   }
 }
 
+export function pLimit(concurrency: number) {
+  const queue: Array<() => void> = [];
+  let active = 0;
+
+  const next = () => {
+    active--;
+    if (queue.length > 0) {
+      active++;
+      const fn = queue.shift()!;
+      fn();
+    }
+  };
+
+  return async <T>(fn: () => Promise<T>): Promise<T> => {
+    if (active >= concurrency) {
+      await new Promise<void>((resolve) => queue.push(resolve));
+    } else {
+      active++;
+    }
+    try {
+      return await fn();
+    } finally {
+      next();
+    }
+  };
+}
+
 export async function pollAll(deps: PollDeps): Promise<PollSummary[]> {
   const allSources = await deps.store.listSources();
-  const sources = allSources.filter((source) => source.enabled);
-  const summaries: PollSummary[] = [];
-  for (const source of sources) {
+  const sources = allSources.filter((source) => {
+    if (!source.enabled) return false;
     const adapter = deps.sources.get(source.kind);
-    if (!adapter?.poll) continue;
-    summaries.push(await pollSource(source, deps));
-  }
-  return summaries;
+    return Boolean(adapter?.poll);
+  });
+
+  const concurrency = Math.max(1, deps.env.RADAR_POLL_CONCURRENCY ?? 4);
+  const limit = pLimit(concurrency);
+  return Promise.all(sources.map((source) => limit(() => pollSource(source, deps))));
 }
