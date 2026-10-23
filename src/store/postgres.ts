@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { randomUUID } from 'node:crypto';
+import { recalculateVoteScoreAndStatus } from '../core/rules.ts';
 import type {
   Lead,
   LeadStatus,
@@ -209,12 +210,14 @@ export class PostgresStore implements Store {
           id, source_id, external_id, url, canonical_url, title, text,
           author, city, budget, currency, category, skills_json, is_remote,
           metadata_json, published_at, fingerprint, title_key, status, score,
-          reasons_json, created_at, delivered_at
+          reasons_json, created_at, delivered_at,
+          votes_up, votes_down, votes_scam, votes_closed, quality_score
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7,
           $8, $9, $10, $11, $12, $13::jsonb, $14,
           $15::jsonb, $16, $17, $18, $19, $20,
-          $21::jsonb, $22, $23
+          $21::jsonb, $22, $23,
+          $24, $25, $26, $27, $28
         ) ON CONFLICT (fingerprint) DO NOTHING`,
         [
           lead.id,
@@ -240,6 +243,11 @@ export class PostgresStore implements Store {
           JSON.stringify(lead.reasons ?? []),
           new Date(lead.createdAt),
           lead.deliveredAt ? new Date(lead.deliveredAt) : null,
+          lead.votes_up ?? 0,
+          lead.votes_down ?? 0,
+          lead.votes_scam ?? 0,
+          lead.votes_closed ?? 0,
+          lead.score,
         ]
       );
 
@@ -291,6 +299,89 @@ export class PostgresStore implements Store {
     }
   }
 
+  async recordVote(
+    leadId: string,
+    signal: 'useful' | 'junk' | 'scam' | 'closed',
+    weight = 1.0,
+  ): Promise<{
+    votes_up: number;
+    votes_down: number;
+    votes_scam: number;
+    votes_closed: number;
+    score: number;
+  }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const res = await client.query('SELECT * FROM leads WHERE id = $1 FOR UPDATE', [leadId]);
+      const row = res.rows[0];
+      if (!row) {
+        await client.query('ROLLBACK');
+        throw new Error(`Lead not found: ${leadId}`);
+      }
+
+      const w = typeof weight === 'number' && Number.isFinite(weight) && weight > 0 ? weight : 1.0;
+      let votes_up = Number(row.votes_up) || 0;
+      let votes_down = Number(row.votes_down) || 0;
+      let votes_scam = Number(row.votes_scam) || 0;
+      let votes_closed = Number(row.votes_closed) || 0;
+
+      if (signal === 'useful') votes_up += w;
+      else if (signal === 'junk') votes_down += w;
+      else if (signal === 'scam') votes_scam += w;
+      else if (signal === 'closed') votes_closed += w;
+
+      votes_up = Number(votes_up.toFixed(4));
+      votes_down = Number(votes_down.toFixed(4));
+      votes_scam = Number(votes_scam.toFixed(4));
+      votes_closed = Number(votes_closed.toFixed(4));
+
+      const baseScore =
+        row.quality_score !== null && row.quality_score !== undefined && Number(row.quality_score) > 0
+          ? Number(row.quality_score)
+          : Number(row.score) || 0;
+
+      const { score: newScore, status: newStatus } = recalculateVoteScoreAndStatus(
+        row.status as LeadStatus,
+        baseScore,
+        { useful: votes_up, junk: votes_down, scam: votes_scam, closed: votes_closed },
+      );
+
+      await client.query(
+        `UPDATE leads
+         SET votes_up = $1,
+             votes_down = $2,
+             votes_scam = $3,
+             votes_closed = $4,
+             score = $5,
+             status = $6,
+             quality_score = COALESCE(quality_score, $7)
+         WHERE id = $8`,
+        [votes_up, votes_down, votes_scam, votes_closed, newScore, newStatus, baseScore, leadId],
+      );
+
+      await client.query(
+        `INSERT INTO outbox_events (event_type, payload) VALUES ($1, $2::jsonb)`,
+        ['lead.voted', JSON.stringify({ leadId, signal, weight: w, score: newScore, status: newStatus })],
+      );
+
+      await client.query('COMMIT');
+
+      return {
+        votes_up,
+        votes_down,
+        votes_scam,
+        votes_closed,
+        score: newScore,
+      };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   async listLeads(options: ListLeadsOptions = {}): Promise<Lead[]> {
     const limit = options.limit ?? 50;
     const conditions: string[] = [];
@@ -304,6 +395,10 @@ export class PostgresStore implements Store {
     if (options.sourceId) {
       conditions.push(`source_id = $${idx++}`);
       params.push(options.sourceId);
+    }
+    if (options.type) {
+      conditions.push(`type = $${idx++}`);
+      params.push(options.type);
     }
     if (options.query && options.query.trim().length > 0) {
       const trimmed = options.query.trim();
@@ -499,6 +594,11 @@ export class PostgresStore implements Store {
       reasons: Array.isArray(r.reasons_json) ? r.reasons_json : JSON.parse(r.reasons_json || '[]'),
       createdAt: new Date(r.created_at).toISOString(),
       deliveredAt: r.delivered_at ? new Date(r.delivered_at).toISOString() : undefined,
+      type: r.type === 'job' ? 'job' : 'gig',
+      votes_up: r.votes_up !== null && r.votes_up !== undefined ? Number(r.votes_up) : 0,
+      votes_down: r.votes_down !== null && r.votes_down !== undefined ? Number(r.votes_down) : 0,
+      votes_scam: r.votes_scam !== null && r.votes_scam !== undefined ? Number(r.votes_scam) : 0,
+      votes_closed: r.votes_closed !== null && r.votes_closed !== undefined ? Number(r.votes_closed) : 0,
     };
   }
 

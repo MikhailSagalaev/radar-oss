@@ -123,3 +123,5 @@ export function slugify(input: string): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, 48);
 }
+
+export { sanitizePrivacy } from './privacy.ts';

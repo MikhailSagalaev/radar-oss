@@ -1,5 +1,7 @@
-export type SourceKind = 'rss' | 'telegram' | 'kwork' | 'webhook' | 'imap';
+export type SourceKind = 'rss' | 'telegram' | 'kwork' | 'webhook' | 'imap' | 'trudvsem' | (string & {});
 export type AccessKind = 'official' | 'public' | 'user-provided' | 'auth-required';
+export type LeadType = 'job' | 'gig';
+export type LeadVoteSignal = 'useful' | 'junk' | 'scam' | 'closed';
 export type LeadStatus =
   | 'new'
   | 'delivered'
@@ -69,6 +71,7 @@ export interface SourceRecord {
 
 export interface RawLead {
   sourceId: string;
+  type?: LeadType;
   externalId?: string;
   url?: string;
   title: string;
@@ -85,6 +88,16 @@ export interface RawLead {
   raw?: Record<string, unknown>;
 }
 
+export type VoteSignal = 'useful' | 'junk' | 'scam' | 'closed';
+
+export interface VoteResult {
+  votes_up: number;
+  votes_down: number;
+  votes_scam: number;
+  votes_closed: number;
+  score: number;
+}
+
 export interface Lead extends RawLead {
   id: string;
   canonicalUrl?: string;
@@ -95,6 +108,10 @@ export interface Lead extends RawLead {
   reasons: string[];
   createdAt: string;
   deliveredAt?: string;
+  votes_up?: number;
+  votes_down?: number;
+  votes_scam?: number;
+  votes_closed?: number;
 }
 
 export interface PollContext {

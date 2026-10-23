@@ -63,4 +63,15 @@ export const SOURCE_PRESETS: SourcePreset[] = [
       url: 'https://weworkremotely.com/categories/remote-programming-jobs.rss',
     },
   },
+  {
+    id: 'trudvsem-it',
+    kind: 'trudvsem',
+    title: 'Работа России — IT-вакансии',
+    description: 'Официальный Open API портала «Работа России» (Минтруд РФ) — вакансии в сфере IT и разработки',
+    config: {
+      url: 'https://opendata.trudvsem.ru/api/v1/vacancies',
+      text: 'разработчик',
+    },
+  },
 ];
+

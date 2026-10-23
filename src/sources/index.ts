@@ -3,6 +3,7 @@ import { imapSource } from './imap.ts';
 import { kworkSource } from './kwork.ts';
 import { rssSource } from './rss.ts';
 import { telegramSource } from './telegram.ts';
+import { trudvsemSource } from './trudvsem.ts';
 import { webhookSource } from './webhook.ts';
 
 export class SourceRegistry {
@@ -28,5 +29,7 @@ export function createSourceRegistry(): SourceRegistry {
     .register(telegramSource)
     .register(kworkSource)
     .register(webhookSource)
-    .register(imapSource);
+    .register(imapSource)
+    .register(trudvsemSource);
 }
+

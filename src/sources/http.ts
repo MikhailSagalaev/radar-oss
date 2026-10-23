@@ -1,7 +1,11 @@
 import { assertSafeUrl } from '../core/ssrf.ts';
 import type { PollContext } from '../core/types.ts';
 
-export async function fetchText(ctx: PollContext, initialUrl: string): Promise<string> {
+export async function fetchText(
+  ctx: PollContext,
+  initialUrl: string,
+  extraHeaders?: Record<string, string>,
+): Promise<string> {
   let currentUrl = initialUrl;
   let redirects = 0;
   const maxRedirects = 5;
@@ -19,8 +23,9 @@ export async function fetchText(ctx: PollContext, initialUrl: string): Promise<s
         signal: controller.signal,
         headers: {
           'User-Agent': ctx.userAgent,
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          Accept: extraHeaders?.Accept ?? 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+          ...extraHeaders,
         },
       });
 

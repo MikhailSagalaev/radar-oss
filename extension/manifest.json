@@ -12,6 +12,13 @@
     "default_title": "Отправить в Radar",
     "default_popup": "popup.html"
   },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "commands": {
     "send-page": {
       "suggested_key": {

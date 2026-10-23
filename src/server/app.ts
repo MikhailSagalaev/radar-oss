@@ -3,7 +3,7 @@ import type { Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { escapeHtml } from '../core/text.ts';
-import type { LeadStatus, RawLead, SourceConfig, SourceKind, SourceRecord } from '../core/types.ts';
+import type { LeadStatus, LeadType, RawLead, SourceConfig, SourceKind, SourceRecord, VoteSignal } from '../core/types.ts';
 import { pollAll, pollSource } from '../pipeline/poll.ts';
 import { ingestRawLead, type IngestDeps } from '../pipeline/ingest.ts';
 import type { Runtime } from '../runtime.ts';
@@ -319,8 +319,12 @@ function toRawLead(body: Record<string, unknown>, sourceId: string): RawLead | n
     }
   }
 
+  const rawType = asString(body.type);
+  const type: LeadType | undefined = rawType === 'job' || rawType === 'gig' ? rawType : undefined;
+
   return {
     sourceId,
+    type,
     externalId: asString(body.externalId),
     url,
     title: title ?? text ?? '',
@@ -420,9 +424,19 @@ export function createApp(runtime: Runtime): Hono {
   app.get('/', async (c) => {
     if (!await canRead(c, runtime)) return c.redirect('/login');
     const rawStatus = c.req.query('status') ?? '';
-    const status = ['new', 'delivered', 'rejected', 'failed'].includes(rawStatus)
+    const status = [
+      'new',
+      'interesting',
+      'applied',
+      'in_work',
+      'delivered',
+      'rejected',
+      'failed',
+    ].includes(rawStatus)
       ? (rawStatus as LeadStatus)
       : '';
+    const rawType = (c.req.query('type') ?? '').trim();
+    const type: LeadType | undefined = rawType === 'job' || rawType === 'gig' ? rawType : undefined;
     const query = (c.req.query('q') ?? '').trim();
 
     const [stats, health, leads] = await Promise.all([
@@ -432,6 +446,7 @@ export function createApp(runtime: Runtime): Hono {
         limit: 50,
         status: status || undefined,
         query: query || undefined,
+        type,
       }),
     ]);
 
@@ -442,6 +457,7 @@ export function createApp(runtime: Runtime): Hono {
         leads,
         query,
         status,
+        type: type ?? '',
         version: VERSION,
       }),
     );
@@ -683,6 +699,47 @@ export function createApp(runtime: Runtime): Hono {
     return c.redirect(`/leads/${id}`);
   });
 
+  app.post('/leads/:id/vote', async (c) => {
+    if (!await canRead(c, runtime)) return c.redirect('/login');
+    const id = c.req.param('id');
+    const contentType = c.req.header('content-type') || '';
+    let signal: string | undefined;
+    if (contentType.includes('application/json')) {
+      const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+      signal = typeof body?.signal === 'string' ? body.signal : undefined;
+    } else {
+      const body = await c.req.parseBody();
+      signal = typeof body.signal === 'string' ? body.signal : undefined;
+    }
+    const validSignals = ['useful', 'junk', 'scam', 'closed'];
+    if (!signal || !validSignals.includes(signal)) {
+      if (contentType.includes('application/json')) {
+        return c.json({ error: 'invalid_signal', valid: validSignals }, 400);
+      }
+      return c.redirect(`/leads/${id}`);
+    }
+
+    try {
+      const result = await runtime.store.recordVote(
+        id,
+        signal as 'useful' | 'junk' | 'scam' | 'closed',
+      );
+      if (contentType.includes('application/json') || c.req.header('accept')?.includes('application/json')) {
+        return c.json({ ok: true, id, ...result });
+      }
+      return c.redirect(`/leads/${id}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('not found')) {
+        if (contentType.includes('application/json')) {
+          return c.json({ error: 'lead_not_found' }, 404);
+        }
+        return c.html(renderNotFound(VERSION), 404);
+      }
+      throw err;
+    }
+  });
+
   app.patch('/api/leads/:id/status', async (c) => {
     if (!await canRead(c, runtime)) return c.json({ error: 'unauthorized' }, 401);
     const id = c.req.param('id');
@@ -692,6 +749,45 @@ export function createApp(runtime: Runtime): Hono {
     if (!status) return c.json({ error: 'status_required' }, 400);
     await runtime.store.updateLeadStatus(id, status, undefined, scoreDelta);
     return c.json({ ok: true, id, status });
+  });
+
+  app.post('/api/leads/:id/vote', async (c) => {
+    if (!await canRead(c, runtime)) return c.json({ error: 'unauthorized' }, 401);
+    const id = c.req.param('id');
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const signal = typeof body?.signal === 'string' ? body.signal : undefined;
+    const validSignals = ['useful', 'junk', 'scam', 'closed'];
+    if (!signal || !validSignals.includes(signal)) {
+      return c.json({ error: 'invalid_signal', valid: validSignals }, 400);
+    }
+
+    // TASK-D1: w = min(reputation, 5.0) * age_factor
+    let weight = 1.0;
+    if (typeof body?.weight === 'number' && Number.isFinite(body.weight) && body.weight > 0) {
+      weight = body.weight;
+    } else if (typeof body?.reputation === 'number' && Number.isFinite(body.reputation)) {
+      const rep = Math.max(0, Math.min(body.reputation, 5.0));
+      const ageDays = typeof body?.accountAgeDays === 'number' && Number.isFinite(body.accountAgeDays)
+        ? body.accountAgeDays
+        : 30;
+      const ageFactor = ageDays >= 7 ? 1.0 : Math.max(0.1, ageDays / 7);
+      weight = Number((rep * ageFactor).toFixed(2));
+    }
+
+    try {
+      const result = await runtime.store.recordVote(
+        id,
+        signal as 'useful' | 'junk' | 'scam' | 'closed',
+        weight,
+      );
+      return c.json({ ok: true, id, ...result });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('not found')) {
+        return c.json({ error: 'lead_not_found' }, 404);
+      }
+      throw err;
+    }
   });
 
   app.post('/sources/:id/toggle', async (c) => {
@@ -786,9 +882,11 @@ export function createApp(runtime: Runtime): Hono {
     if (!await canRead(c, runtime)) return c.json({ error: 'unauthorized' }, 401);
     const limit = Math.max(1, Math.min(Number(c.req.query('limit') ?? 50) || 50, 500));
     const status = c.req.query('status') as LeadStatus | undefined;
+    const rawType = c.req.query('type')?.trim();
+    const type: LeadType | undefined = rawType === 'job' || rawType === 'gig' ? rawType : undefined;
     const sourceId = c.req.query('source') || undefined;
     const query = c.req.query('q')?.trim() || undefined;
-    return c.json(await runtime.store.listLeads({ limit, status, sourceId, query }));
+    return c.json(await runtime.store.listLeads({ limit, status, sourceId, query, type }));
   });
 
   app.delete('/api/leads/:id', async (c) => {

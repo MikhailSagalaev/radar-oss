@@ -1,6 +1,7 @@
 import type {
   Lead,
   LeadStatus,
+  LeadType,
   RunRecord,
   SourceConfig,
   SourceHealth,
@@ -28,6 +29,7 @@ export interface ListLeadsOptions {
   status?: LeadStatus;
   sourceId?: string;
   query?: string;
+  type?: LeadType;
 }
 
 export interface LeadDeliveryRecord {
@@ -54,6 +56,17 @@ export interface Store {
   findRecentByTitleKey(titleKey: string, city: string | undefined, sinceIso: string): Promise<Lead | null>;
   insertLead(lead: Lead): Promise<boolean>;
   updateLeadStatus(id: string, status: LeadStatus, deliveredAt?: string, scoreDelta?: number): Promise<void>;
+  recordVote(
+    leadId: string,
+    signal: 'useful' | 'junk' | 'scam' | 'closed',
+    weight?: number,
+  ): Promise<{
+    votes_up: number;
+    votes_down: number;
+    votes_scam: number;
+    votes_closed: number;
+    score: number;
+  }>;
   listLeads(options?: ListLeadsOptions): Promise<Lead[]>;
   getStats(): Promise<Stats>;
   getSourceHealth(): Promise<SourceHealth[]>;

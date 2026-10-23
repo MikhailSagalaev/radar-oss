@@ -13,8 +13,9 @@ import { SOURCE_PRESETS } from '../sources/presets.ts';
 import { loadEnv } from '../config.ts';
 import { runMigrations } from '../store/migrator.ts';
 import { VERSION } from '../version.ts';
+import { generateConnector } from './generator.ts';
 
-const SOURCE_KINDS: SourceKind[] = ['rss', 'telegram', 'kwork', 'webhook', 'imap'];
+const SOURCE_KINDS: SourceKind[] = ['rss', 'telegram', 'kwork', 'webhook', 'imap', 'trudvsem'];
 
 interface AddSourceOptions {
   kind: string;
@@ -276,6 +277,9 @@ function buildProgram(): Command {
       if (kind === 'rss' && !config.url) fail('rss source requires --url');
       if (kind === 'telegram' && !config.channel && !config.url) {
         fail('telegram source requires --channel or --url');
+      }
+      if (kind === 'trudvsem' && !config.url) {
+        config.url = 'https://opendata.trudvsem.ru/api/v1/vacancies';
       }
       if (kind === 'imap' && (!config.host || !config.user || !config.passwordEnv)) {
         fail('imap source requires --host, --user and --password-env');
@@ -558,6 +562,29 @@ function buildProgram(): Command {
         }
         console.log(`Экспортировано ${leads.length} лидов в ${resolve(out)}`);
       });
+    });
+
+  program
+    .command('new-connector <name>')
+    .description('Generate scaffolding for a new community source adapter')
+    .option('--format <format>', 'Payload format: json or html', 'json')
+    .option('--force', 'Overwrite existing files if present', false)
+    .action((name: string, options: { format?: string; force?: boolean }) => {
+      try {
+        const result = generateConnector(name, {
+          format: options.format === 'html' ? 'html' : 'json',
+          force: options.force,
+        });
+        console.log(`✓ Создан адаптер: ${result.adapterPath}`);
+        console.log(`✓ Создана фикстура: ${result.fixturePath}`);
+        console.log(`✓ Создан тест: ${result.testPath}`);
+        console.log('\nСледующие шаги:');
+        console.log(`  1. Настройте парсер в ${result.adapterPath}`);
+        console.log(`  2. Добавьте реальный ответ в ${result.fixturePath}`);
+        console.log(`  3. Запустите тесты: pnpm test ${result.testPath}`);
+      } catch (err) {
+        fail(err instanceof Error ? err.message : String(err));
+      }
     });
 
   return program;

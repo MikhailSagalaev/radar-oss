@@ -17,13 +17,24 @@
     <div id="page-url" class="page-url"></div>
   </div>
 
+  <div class="type-selector">
+    <label class="radio-label">
+      <input type="radio" name="leadType" value="gig" id="type-gig" checked>
+      <span>Заказ</span>
+    </label>
+    <label class="radio-label">
+      <input type="radio" name="leadType" value="job" id="type-job">
+      <span>Вакансия</span>
+    </label>
+  </div>
+
   <div class="actions-box">
     <button id="send" type="button">Отправить в Radar</button>
   </div>
   <p id="status" class="status"></p>
 
   <details id="settings-details">
-    <summary>⚙️ Настройки сервера</summary>
+    <summary>Настройки сервера</summary>
     <form id="config">
       <label>Ваш никнейм (@telegram)
         <input id="contributor" type="text" placeholder="@username">

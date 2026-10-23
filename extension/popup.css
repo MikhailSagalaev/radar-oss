@@ -77,6 +77,32 @@ header span {
   text-overflow: ellipsis;
 }
 
+.type-selector {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 4px 2px;
+}
+
+.radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.radio-label input[type="radio"] {
+  width: auto;
+  margin: 0;
+  accent-color: var(--ink);
+  cursor: pointer;
+}
+
 .actions-box {
   margin-bottom: 8px;
 }

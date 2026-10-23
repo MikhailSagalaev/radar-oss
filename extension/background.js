@@ -62,34 +62,67 @@ chrome.commands.onCommand.addListener(async (command) => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
 
-    const [injection] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => {
-        const description =
-          document.querySelector('meta[name="description"]')?.getAttribute('content') ?? '';
-        return {
-          title: document.title,
-          url: location.href,
-          selection: String(window.getSelection() ?? '').trim().slice(0, 4000),
-          description,
-        };
-      },
-    });
+    let page = null;
+    try {
+      page = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_PAGE_DATA' });
+    } catch {}
 
-    const page = injection?.result;
+    if (!page) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content.js'],
+        });
+        page = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_PAGE_DATA' });
+      } catch {}
+    }
+
+    if (!page) {
+      const [injection] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          const description =
+            document.querySelector('meta[name="description"]')?.getAttribute('content') ?? '';
+          return {
+            title: document.title,
+            url: location.href,
+            selection: String(window.getSelection() ?? '').trim().slice(0, 4000),
+            description,
+            jobPosting: null,
+            detectedType: 'gig',
+          };
+        },
+      });
+      page = injection?.result;
+    }
+
     if (!page) return;
 
     const stored = await chrome.storage.local.get('radarConfig');
     const contributor = stored.radarConfig?.contributor;
     const author = contributor ? `${contributor} (community)` : 'Community Extension';
 
-    const ok = await sendToRadar({
-      title: page.title,
-      text: page.selection || page.description || page.title,
+    const payload = {
+      type: page.detectedType || (page.jobPosting ? 'job' : 'gig'),
+      title: page.jobPosting?.title || page.title,
+      text: page.selection || page.jobPosting?.description || page.description || page.title,
       url: page.url,
       author,
       externalId: `browser:${page.url}`,
-    });
+    };
+
+    if (page.jobPosting) {
+      if (page.jobPosting.city) payload.city = page.jobPosting.city;
+      if (typeof page.jobPosting.budget === 'number') payload.budget = page.jobPosting.budget;
+      if (page.jobPosting.currency) payload.currency = page.jobPosting.currency;
+      if (page.jobPosting.skills?.length) payload.skills = page.jobPosting.skills;
+      if (typeof page.jobPosting.isRemote === 'boolean') payload.isRemote = page.jobPosting.isRemote;
+      if (page.jobPosting.company) {
+        payload.metadata = { company: page.jobPosting.company };
+      }
+    }
+
+    const ok = await sendToRadar(payload);
 
     if (chrome.action) {
       chrome.action.setBadgeText({ text: ok ? 'OK' : 'ERR' });

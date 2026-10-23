@@ -107,6 +107,7 @@ export async function ingestRawLead(
   const lead: Lead = {
     id: randomUUID(),
     sourceId: source.id,
+    type: prepared.type ?? 'gig',
     externalId: prepared.externalId,
     url: prepared.url,
     canonicalUrl: prepared.canonicalUrl,
@@ -127,6 +128,10 @@ export async function ingestRawLead(
     score,
     reasons,
     createdAt: now.toISOString(),
+    votes_up: 0,
+    votes_down: 0,
+    votes_scam: 0,
+    votes_closed: 0,
   };
 
   const inserted = await deps.store.insertLead(lead);

@@ -47,6 +47,52 @@ describe('source adapters', () => {
     expect(leads[0]?.externalId).toBe('kwork:123');
   });
 
+  it('parses Trudvsem (Работа России) vacancies and sanitizes contacts per 152-FZ', async () => {
+    const adapter = registry.get('trudvsem');
+    expect(adapter).toBeDefined();
+    expect(adapter?.poll).toBeTypeOf('function');
+    const leads = await adapter!.poll!(
+      makeSource({ kind: 'trudvsem', config: { url: 'https://opendata.trudvsem.ru/api/v1/vacancies' } }),
+      pollContext(fixture('trudvsem.json')),
+    );
+    expect(leads).toHaveLength(5);
+
+    const first = leads[0]!;
+    expect(first.title).toBe('Разработчик');
+    expect(first.budget).toBe(60000);
+    expect(first.url).toContain('trudvsem.ru');
+    expect(first.externalId).toBe('trudvsem:ec3ede23-f806-11ef-9741-e7d0d2cf29b1');
+    expect(first.author).toBe('ООО "ЭМ СИ АРТ РУС"');
+    expect(first.city).toBe('Санкт-Петербург');
+    expect(first.isRemote).toBe(true);
+    expect(first.skills).toContain('PHP');
+    expect(first.skills).toContain('1С');
+    expect(first.skills).toContain('Git');
+
+    const second = leads[1]!;
+    expect(second.title).toBe('программист-разработчик');
+    expect(second.budget).toBe(40000);
+    expect(second.city).toBe('Екатеринбург');
+    expect(second.skills).toContain('Java');
+
+    const fifth = leads[4]!;
+    expect(fifth.title).toBe('Java-разработчик');
+    expect(fifth.budget).toBe(200000);
+    expect(fifth.city).toBe('Белгород');
+    expect(fifth.skills).toContain('Java');
+    expect(fifth.skills).toContain('Kafka');
+    expect(fifth.skills).toContain('Spring');
+    expect(fifth.skills).toContain('PostgreSQL');
+    expect(fifth.skills).toContain('Git');
+
+    // 152-FZ verification: no phone numbers in text, no personal contact data in raw
+    for (const lead of leads) {
+      expect(lead.text).not.toMatch(/\+7\s*\(?\d{3}\)?\s*\d{3}-\d{2}-\d{2}/);
+      expect(lead.raw?.contact_list).toBeUndefined();
+      expect(lead.raw?.contact_person).toBeUndefined();
+    }
+  });
+
   it('does not expose a poll function for webhook sources', () => {
     const adapter = registry.get('webhook');
     expect(adapter).toBeDefined();

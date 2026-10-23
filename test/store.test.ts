@@ -198,4 +198,96 @@ describe('store', () => {
 
     await store.close();
   });
+
+  it('records votes, recalculates score based on community sentiment, and returns voting fields', async () => {
+    const store = new MemoryStore();
+    const source = await store.createSource({ kind: 'rss', title: 'Feed' });
+    const lead = makeLead({ sourceId: source.id, id: 'lead-vote', score: 75 });
+    await store.insertLead(lead);
+
+    // Initial check
+    const initial = await store.getLead(lead.id);
+    expect(initial?.votes_up).toBe(0);
+    expect(initial?.votes_down).toBe(0);
+    expect(initial?.votes_scam).toBe(0);
+    expect(initial?.votes_closed).toBe(0);
+    expect(initial?.score).toBe(75);
+
+    // 1. Useful vote: U=1, J=0, S=0. community = 1/3, adjustment = +8
+    const vote1 = await store.recordVote(lead.id, 'useful', 1);
+    expect(vote1.votes_up).toBe(1);
+    expect(vote1.votes_down).toBe(0);
+    expect(vote1.score).toBe(83);
+
+    // 2. Second useful vote: U=2, J=0, S=0. community = 2/4 = 0.5, adjustment = +13
+    const vote2 = await store.recordVote(lead.id, 'useful', 1);
+    expect(vote2.votes_up).toBe(2);
+    expect(vote2.score).toBe(88);
+
+    // 3. Junk vote: U=2, J=1, S=0. community = (2-1)/(2+1+2) = 1/5 = 0.2, adjustment = +5
+    const vote3 = await store.recordVote(lead.id, 'junk', 1);
+    expect(vote3.votes_down).toBe(1);
+    expect(vote3.score).toBe(80);
+
+    // Verify getLead and listLeads return the updated fields
+    const updated = await store.getLead(lead.id);
+    expect(updated?.votes_up).toBe(2);
+    expect(updated?.votes_down).toBe(1);
+    expect(updated?.votes_scam).toBe(0);
+    expect(updated?.votes_closed).toBe(0);
+    expect(updated?.score).toBe(80);
+
+    const listed = await store.listLeads({ limit: 10 });
+    const listedLead = listed.find((l) => l.id === lead.id);
+    expect(listedLead?.votes_up).toBe(2);
+    expect(listedLead?.votes_down).toBe(1);
+
+    await store.close();
+  });
+
+  it('marks lead as rejected when scam threshold is reached (TASK-D3: S >= 3 && S > U)', async () => {
+    const store = new MemoryStore();
+    const source = await store.createSource({ kind: 'rss', title: 'Feed' });
+    const lead = makeLead({ sourceId: source.id, id: 'lead-scam', status: 'new', score: 60 });
+    await store.insertLead(lead);
+
+    // 1 useful vote: U=1
+    await store.recordVote(lead.id, 'useful', 1);
+    expect((await store.getLead(lead.id))?.status).toBe('new');
+
+    // 2 scam votes: S=2 (S < 3 -> not rejected yet)
+    await store.recordVote(lead.id, 'scam', 2);
+    expect((await store.getLead(lead.id))?.status).toBe('new');
+
+    // 1 more scam vote: S=3, U=1 (S >= 3 && S > U -> rejected!)
+    const res = await store.recordVote(lead.id, 'scam', 1);
+    expect(res.votes_scam).toBe(3);
+    const finalLead = await store.getLead(lead.id);
+    expect(finalLead?.status).toBe('rejected');
+
+    await store.close();
+  });
+
+  it('marks lead as rejected when closed threshold is reached (C >= 2 && C > U * 0.5)', async () => {
+    const store = new MemoryStore();
+    const source = await store.createSource({ kind: 'rss', title: 'Feed' });
+    const lead = makeLead({ sourceId: source.id, id: 'lead-closed', status: 'new', score: 70 });
+    await store.insertLead(lead);
+
+    // 2 useful votes: U=2
+    await store.recordVote(lead.id, 'useful', 2);
+    expect((await store.getLead(lead.id))?.status).toBe('new');
+
+    // 1 closed vote: C=1 (C < 2 -> not rejected yet)
+    await store.recordVote(lead.id, 'closed', 1);
+    expect((await store.getLead(lead.id))?.status).toBe('new');
+
+    // 1 more closed vote: C=2, U=2. C >= 2 and C > 2 * 0.5 (2 > 1) -> rejected!
+    const res = await store.recordVote(lead.id, 'closed', 1);
+    expect(res.votes_closed).toBe(2);
+    const finalLead = await store.getLead(lead.id);
+    expect(finalLead?.status).toBe('rejected');
+
+    await store.close();
+  });
 });

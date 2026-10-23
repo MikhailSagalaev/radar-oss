@@ -2,7 +2,7 @@ export * from './core/types.ts';
 export * from './core/store.ts';
 export { canonicalizeUrl } from './core/url.ts';
 export { fingerprintOf, titleKeyOf } from './core/fingerprint.ts';
-export { applyRules, scoreLead } from './core/rules.ts';
+export { applyRules, scoreLead, recalculateVoteScoreAndStatus } from './core/rules.ts';
 export { prepareRawLead } from './core/prepare.ts';
 export { defineSink, defineSource } from './sdk.ts';
 export { VERSION } from './version.ts';

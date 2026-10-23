@@ -1,5 +1,5 @@
 import { normalizeForMatch } from './text.ts';
-import type { SourceRecord } from './types.ts';
+import type { LeadStatus, SourceRecord } from './types.ts';
 import type { PreparedLead } from './prepare.ts';
 
 interface SpamRule {
@@ -192,3 +192,43 @@ export function scoreLead(
 
   return Math.max(0, Math.min(100, Math.round(score)));
 }
+
+export interface VoteSums {
+  useful: number;
+  junk: number;
+  scam: number;
+  closed: number;
+}
+
+export function recalculateVoteScoreAndStatus(
+  currentStatus: LeadStatus,
+  baseScore: number,
+  votes: VoteSums,
+): { score: number; status: LeadStatus; community: number } {
+  const U = votes.useful;
+  const J = votes.junk;
+  const S = votes.scam;
+  const C = votes.closed;
+
+  // Community sentiment formula:
+  // community = (U - J - 3*S) / (U + J + S + 2)
+  const denominator = U + J + S + 2;
+  const community = (U - J - 3 * S) / denominator;
+
+  // Score adjustment based on community sentiment
+  const adjustment = Math.round(community * 25);
+  const score = Math.max(0, Math.min(100, Math.round(baseScore + adjustment)));
+
+  let status = currentStatus;
+  // If S >= 3 and S > U, mark lead status as 'rejected' / hidden.
+  if (S >= 3 && S > U) {
+    status = 'rejected';
+  }
+  // If C >= 2 and C > U * 0.5, mark lead status as 'rejected' (closed).
+  if (C >= 2 && C > U * 0.5) {
+    status = 'rejected';
+  }
+
+  return { score, status, community };
+}
+

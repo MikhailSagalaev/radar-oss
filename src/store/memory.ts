@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { recalculateVoteScoreAndStatus } from '../core/rules.ts';
 import type {
   CreateSourceInput,
   LeadDeliveryRecord,
@@ -71,11 +72,19 @@ export class MemoryStore implements Store {
   async findLeadByFingerprint(fingerprint: string): Promise<Lead | null> {
     const id = this.leadsByFingerprint.get(fingerprint);
     if (!id) return null;
-    return this.leads.get(id) ?? null;
+    return this.getLead(id);
   }
 
   async getLead(id: string): Promise<Lead | null> {
-    return this.leads.get(id) ?? null;
+    const lead = this.leads.get(id);
+    if (!lead) return null;
+    return {
+      ...lead,
+      votes_up: lead.votes_up ?? 0,
+      votes_down: lead.votes_down ?? 0,
+      votes_scam: lead.votes_scam ?? 0,
+      votes_closed: lead.votes_closed ?? 0,
+    };
   }
 
   async findRecentByTitleKey(titleKey: string, city: string | undefined, sinceIso: string): Promise<Lead | null> {
@@ -87,14 +96,30 @@ export class MemoryStore implements Store {
         return lead.createdAt >= sinceIso;
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return candidates[0] ?? null;
+    const cand = candidates[0];
+    if (!cand) return null;
+    return {
+      ...cand,
+      votes_up: cand.votes_up ?? 0,
+      votes_down: cand.votes_down ?? 0,
+      votes_scam: cand.votes_scam ?? 0,
+      votes_closed: cand.votes_closed ?? 0,
+    };
   }
 
   async insertLead(lead: Lead): Promise<boolean> {
     if (this.leadsByFingerprint.has(lead.fingerprint)) {
       return false;
     }
-    this.leads.set(lead.id, lead);
+    const storedLead: Lead = {
+      ...lead,
+      votes_up: lead.votes_up ?? 0,
+      votes_down: lead.votes_down ?? 0,
+      votes_scam: lead.votes_scam ?? 0,
+      votes_closed: lead.votes_closed ?? 0,
+    };
+    (storedLead as any).baseScore = lead.score;
+    this.leads.set(lead.id, storedLead);
     this.leadsByFingerprint.set(lead.fingerprint, lead.id);
     return true;
   }
@@ -108,8 +133,64 @@ export class MemoryStore implements Store {
       }
       if (typeof scoreDelta === 'number') {
         lead.score += scoreDelta;
+        (lead as any).baseScore = lead.score;
       }
     }
+  }
+
+  async recordVote(
+    leadId: string,
+    signal: 'useful' | 'junk' | 'scam' | 'closed',
+    weight = 1.0,
+  ): Promise<{
+    votes_up: number;
+    votes_down: number;
+    votes_scam: number;
+    votes_closed: number;
+    score: number;
+  }> {
+    const lead = this.leads.get(leadId);
+    if (!lead) {
+      throw new Error(`Lead not found: ${leadId}`);
+    }
+
+    const w = typeof weight === 'number' && Number.isFinite(weight) && weight > 0 ? weight : 1.0;
+    let votes_up = lead.votes_up ?? 0;
+    let votes_down = lead.votes_down ?? 0;
+    let votes_scam = lead.votes_scam ?? 0;
+    let votes_closed = lead.votes_closed ?? 0;
+
+    if (signal === 'useful') votes_up += w;
+    else if (signal === 'junk') votes_down += w;
+    else if (signal === 'scam') votes_scam += w;
+    else if (signal === 'closed') votes_closed += w;
+
+    votes_up = Number(votes_up.toFixed(4));
+    votes_down = Number(votes_down.toFixed(4));
+    votes_scam = Number(votes_scam.toFixed(4));
+    votes_closed = Number(votes_closed.toFixed(4));
+
+    const baseScore = (lead as any).baseScore ?? lead.score;
+    const { score: newScore, status: newStatus } = recalculateVoteScoreAndStatus(
+      lead.status,
+      baseScore,
+      { useful: votes_up, junk: votes_down, scam: votes_scam, closed: votes_closed },
+    );
+
+    lead.votes_up = votes_up;
+    lead.votes_down = votes_down;
+    lead.votes_scam = votes_scam;
+    lead.votes_closed = votes_closed;
+    lead.score = newScore;
+    lead.status = newStatus;
+
+    return {
+      votes_up,
+      votes_down,
+      votes_scam,
+      votes_closed,
+      score: newScore,
+    };
   }
 
   async listLeads(options: ListLeadsOptions = {}): Promise<Lead[]> {
@@ -119,6 +200,9 @@ export class MemoryStore implements Store {
     }
     if (options.sourceId) {
       result = result.filter((l) => l.sourceId === options.sourceId);
+    }
+    if (options.type) {
+      result = result.filter((l) => (l.type ?? 'gig') === options.type);
     }
     if (options.query?.trim()) {
       const q = options.query.trim().toLowerCase();
@@ -130,7 +214,13 @@ export class MemoryStore implements Store {
 
     result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const limit = Math.max(1, Math.min(options.limit ?? 50, 5000));
-    return result.slice(0, limit);
+    return result.slice(0, limit).map((l) => ({
+      ...l,
+      votes_up: l.votes_up ?? 0,
+      votes_down: l.votes_down ?? 0,
+      votes_scam: l.votes_scam ?? 0,
+      votes_closed: l.votes_closed ?? 0,
+    }));
   }
 
   async getStats(): Promise<Stats> {

@@ -7,6 +7,7 @@ export interface LeadsPageData {
   leads: Lead[];
   query: string;
   status: string;
+  type?: string;
   version: string;
 }
 
@@ -398,6 +399,71 @@ a:hover { text-decoration: underline; }
   color: var(--bg);
   border-color: var(--ink);
   font-weight: 600;
+}
+.type-tabs {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px;
+  width: fit-content;
+}
+.type-tab {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 5px 14px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+.type-tab:hover {
+  color: var(--ink);
+  text-decoration: none;
+}
+.type-tab.active {
+  background: var(--bg);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.community-votes {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.vote-btn {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+.vote-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--line-strong);
+}
+.vote-btn:active {
+  transform: scale(0.97);
+}
+.vote-btn .vote-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 11px;
+}
+.vote-btn-danger:hover {
+  border-color: var(--rose);
+  color: var(--rose);
 }
 .btn {
   display: inline-flex;
@@ -801,6 +867,7 @@ function leadTitle(lead: Lead): string {
 
 function leadRow(lead: Lead, source?: SourceRecord): string {
   const meta = [
+    lead.type === 'job' ? 'Вакансия' : 'Заказ',
     source?.title,
     lead.category,
     lead.city ?? (lead.isRemote !== false ? 'Удаленно' : undefined),
@@ -879,8 +946,15 @@ function runsTable(
 }
 
 export function renderLeadsPage(data: LeadsPageData): string {
-  const { stats, health, leads, query, status, version } = data;
+  const { stats, health, leads, query, status, type = '', version } = data;
   const sourceById = new Map(health.map((item) => [item.source.id, item.source]));
+
+  const typeTabs: Array<{ key: string; label: string }> = [
+    { key: '', label: 'Все' },
+    { key: 'gig', label: 'Заказы' },
+    { key: 'job', label: 'Вакансии' },
+  ];
+
   const statusFilters: Array<{ key: string; label: string }> = [
     { key: '', label: 'Все' },
     { key: 'new', label: 'Новые' },
@@ -891,18 +965,35 @@ export function renderLeadsPage(data: LeadsPageData): string {
     { key: 'rejected', label: 'Отклонённые' },
   ];
 
-  const hrefFor = (nextStatus: string): string => {
+  const hrefForType = (nextType: string): string => {
     const params = new URLSearchParams();
+    if (nextType) params.set('type', nextType);
+    if (status) params.set('status', status);
+    if (query) params.set('q', query);
+    const suffix = params.toString();
+    return suffix ? `/?${suffix}` : '/';
+  };
+
+  const hrefForStatus = (nextStatus: string): string => {
+    const params = new URLSearchParams();
+    if (type) params.set('type', type);
     if (nextStatus) params.set('status', nextStatus);
     if (query) params.set('q', query);
     const suffix = params.toString();
     return suffix ? `/?${suffix}` : '/';
   };
 
+  const tabs = typeTabs
+    .map(
+      (item) =>
+        `<a class="type-tab${item.key === type ? ' active' : ''}" href="${escapeHtml(hrefForType(item.key))}">${item.label}</a>`,
+    )
+    .join('');
+
   const chips = statusFilters
     .map(
       (item) =>
-        `<a class="chip${item.key === status ? ' active' : ''}" href="${escapeHtml(hrefFor(item.key))}">${item.label}</a>`,
+        `<a class="chip${item.key === status ? ' active' : ''}" href="${escapeHtml(hrefForStatus(item.key))}">${item.label}</a>`,
     )
     .join('');
 
@@ -923,7 +1014,9 @@ export function renderLeadsPage(data: LeadsPageData): string {
 
   const body = `
 <div class="search-hero">
+  <div class="type-tabs">${tabs}</div>
   <form class="search-form" method="get" action="/">
+    ${type ? `<input type="hidden" name="type" value="${escapeHtml(type)}">` : ''}
     ${status ? `<input type="hidden" name="status" value="${escapeHtml(status)}">` : ''}
     <div class="search-bar">
       <input name="q" id="search-input" value="${escapeHtml(query)}" placeholder="Поиск по задачам, навыкам, категориям или городам... (нажмите / для фокуса)" aria-label="Поиск по заказам">
@@ -946,8 +1039,16 @@ window.addEventListener('keydown', (e) => {
 });
 </script>`;
 
+  const pageTitle = query
+    ? `${query} — Поиск`
+    : type === 'job'
+    ? 'Вакансии'
+    : type === 'gig'
+    ? 'Заказы'
+    : 'Заказы';
+
   return layout({
-    title: query ? `${query} — Поиск` : 'Заказы',
+    title: pageTitle,
     version,
     active: 'leads',
     body,
@@ -1027,6 +1128,13 @@ document.getElementById('copy-lead')?.addEventListener('click', async (event) =>
     <button name="status" value="in_work" class="funnel-btn ${lead.status === 'in_work' ? 'active' : ''}">В работе</button>
     <button name="status" value="rejected" class="funnel-btn ${lead.status === 'rejected' ? 'active' : ''}">Отклонён</button>
   </form>
+  <form method="post" action="/leads/${escapeHtml(lead.id)}/vote" class="community-votes">
+    <span class="small muted" style="margin-right:4px">Сообщество:</span>
+    <button name="signal" value="useful" class="vote-btn" type="submit">Полезно <span class="vote-count">${lead.votes_up ?? 0}</span></button>
+    <button name="signal" value="junk" class="vote-btn" type="submit">Мусор <span class="vote-count">${lead.votes_down ?? 0}</span></button>
+    <button name="signal" value="scam" class="vote-btn vote-btn-danger" type="submit">Скам <span class="vote-count">${lead.votes_scam ?? 0}</span></button>
+    <button name="signal" value="closed" class="vote-btn" type="submit">Закрыто <span class="vote-count">${lead.votes_closed ?? 0}</span></button>
+  </form>
   <form method="post" action="/leads/${escapeHtml(lead.id)}/feedback" style="display:flex;gap:6px;align-items:center">
     <span class="small muted" style="margin-right:4px">Оценка:</span>
     <button name="feedback" value="up" class="btn ghost small" title="Подходит">+10 Подходит</button>
@@ -1044,6 +1152,8 @@ document.getElementById('copy-lead')?.addEventListener('click', async (event) =>
   <aside>
     <h2>Детали</h2>
     <dl class="meta-list">
+      <div><dt>Тип</dt><dd>${lead.type === 'job' ? 'Вакансия' : 'Заказ'}</dd></div>
+      <div><dt>Голоса</dt><dd>+${lead.votes_up ?? 0} / -${lead.votes_down ?? 0} / скам: ${lead.votes_scam ?? 0} / закрыто: ${lead.votes_closed ?? 0}</dd></div>
       <div><dt>Источник</dt><dd>${source ? `<a href="/sources/${escapeHtml(source.id)}">${escapeHtml(source.title)}</a>` : escapeHtml(lead.sourceId)}</dd></div>
       ${lead.category ? `<div><dt>Категория</dt><dd><b>${escapeHtml(lead.category)}</b></dd></div>` : ''}
       <div><dt>Локация</dt><dd>${escapeHtml(lead.city ?? (lead.isRemote !== false ? 'Удалённо' : '—'))}</dd></div>
