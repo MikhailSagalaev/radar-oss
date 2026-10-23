@@ -193,12 +193,26 @@ export const hhSource: SourceAdapter = {
       url.searchParams.set('schedule', String(source.config.schedule));
     }
 
-    const customUserAgent = 'OpenRadar/1.0 (https://github.com/MikhailSagalaev/radar-oss)';
-
-    const jsonText = await fetchText(ctx, url.toString(), {
+    const customUserAgent = 'OpenRadar/1.0 (contact@radar.dev)';
+    const headers: Record<string, string> = {
       Accept: 'application/json',
       'User-Agent': customUserAgent,
-    });
+    };
+    if (typeof source.config.token === 'string' && source.config.token.trim()) {
+      headers['Authorization'] = `Bearer ${source.config.token.trim()}`;
+    }
+
+    let jsonText: string;
+    try {
+      jsonText = await fetchText(ctx, url.toString(), headers);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('403')) {
+        ctx.logger.warn('HH.ru API: доступ с IP дата-центра заблокирован WAF (для работы требуется токен или резидентский прокси)', { url: url.toString() });
+        return [];
+      }
+      throw err;
+    }
 
     let payload: HhVacanciesResponse;
     try {
