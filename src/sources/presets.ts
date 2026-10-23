@@ -73,5 +73,27 @@ export const SOURCE_PRESETS: SourcePreset[] = [
       text: 'разработчик',
     },
   },
+  {
+    id: 'hh-it',
+    kind: 'hh',
+    title: 'HeadHunter — IT-вакансии',
+    description: 'Официальный Open API HeadHunter (hh.ru) — вакансии в сфере IT и разработки',
+    config: {
+      url: 'https://api.hh.ru/vacancies',
+      text: 'разработчик',
+      limit: 20,
+    },
+  },
+  {
+    id: 'remoteok-dev',
+    kind: 'remoteok',
+    title: 'RemoteOK — Remote Jobs',
+    description: 'Официальный публичный JSON API RemoteOK — международные удаленные вакансии',
+    config: {
+      url: 'https://remoteok.com/api',
+      tag: 'dev',
+      limit: 20,
+    },
+  },
 ];
 

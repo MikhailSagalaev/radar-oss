@@ -1,4 +1,4 @@
-export type SourceKind = 'rss' | 'telegram' | 'kwork' | 'webhook' | 'imap' | 'trudvsem' | (string & {});
+export type SourceKind = 'rss' | 'telegram' | 'kwork' | 'webhook' | 'imap' | 'trudvsem' | 'hh' | 'remoteok' | (string & {});
 export type AccessKind = 'official' | 'public' | 'user-provided' | 'auth-required';
 export type LeadType = 'job' | 'gig';
 export type LeadVoteSignal = 'useful' | 'junk' | 'scam' | 'closed';

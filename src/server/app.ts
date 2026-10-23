@@ -19,8 +19,10 @@ import {
   renderSourceCreatedPage,
   renderSourcePage,
   renderSourcesPage,
+  renderSubmitPage,
   type SourceFormValues,
 } from './ui.ts';
+import { extractPreviewFromHtml, validateSubmissionUrl } from './preview.ts';
 
 function tokenFromRequest(c: Context): string | undefined {
   const authorization = c.req.header('authorization');
@@ -354,7 +356,10 @@ export function createApp(runtime: Runtime): Hono {
 
     const method = c.req.method.toUpperCase();
     if (['POST', 'PATCH', 'DELETE'].includes(method)) {
-      const isIngest = c.req.path.startsWith('/api/ingest');
+      const isIngest =
+        c.req.path.startsWith('/api/ingest') ||
+        c.req.path === '/api/preview' ||
+        c.req.path === '/api/submit';
       const hasBearerAuth = Boolean(c.req.header('authorization') || c.req.header('x-radar-token'));
       if (!isIngest && !hasBearerAuth) {
         if (!sameOrigin(c)) {
@@ -474,6 +479,61 @@ export function createApp(runtime: Runtime): Hono {
         webhookSources,
       }),
     );
+  });
+
+  app.get('/submit', async (c) => {
+    if (!await canRead(c, runtime)) return c.redirect('/login');
+    return c.html(renderSubmitPage({ version: VERSION }));
+  });
+
+  app.post('/submit', async (c) => {
+    if (!await canRead(c, runtime)) return c.redirect('/login');
+    const body = await c.req.parseBody();
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+    const rawType = typeof body.leadType === 'string' ? body.leadType.trim() : '';
+    const type: LeadType = rawType === 'job' || rawType === 'gig' ? rawType : 'gig';
+    const author = typeof body.author === 'string' ? body.author.trim() : undefined;
+    const city = typeof body.city === 'string' ? body.city.trim() : undefined;
+    const budget = asNumber(body.budget);
+    const currency = typeof body.currency === 'string' && body.currency.trim() ? body.currency.trim() : 'RUB';
+
+    if (!title && !text) return c.redirect('/submit');
+
+    const sources = await runtime.store.listSources();
+    let source =
+      sources.find((s) => s.kind === 'webhook' && s.enabled) ??
+      sources.find((s) => s.kind === 'webhook');
+    if (!source) {
+      source = await runtime.store.createSource({
+        kind: 'webhook',
+        title: 'Ручное добавление',
+        config: {},
+        enabled: true,
+      });
+    }
+
+    const rawLead: RawLead = {
+      sourceId: source.id,
+      type,
+      title: title || text,
+      text: text || title,
+      url: url || undefined,
+      author: author || 'Web Submission',
+      city,
+      budget,
+      currency,
+      isRemote: true,
+      externalId: url ? `url:${url}` : `manual:${Date.now()}`,
+      raw: body,
+    };
+
+    const outcome = await ingestRawLead(rawLead, source, deps(runtime));
+    if (outcome.lead?.id) {
+      return c.redirect(`/leads/${outcome.lead.id}`);
+    }
+    return c.redirect('/');
   });
 
   app.get('/sources', async (c) => {
@@ -976,6 +1036,94 @@ export function createApp(runtime: Runtime): Hono {
       outcomes.push(await ingestRawLead(raw, source, deps(runtime)));
     }
     return c.json({ sourceId: source.id, accepted: outcomes.length, outcomes });
+  });
+
+  app.post('/api/preview', async (c) => {
+    if (!await canRead(c, runtime)) return c.json({ error: 'unauthorized' }, 401);
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const url = asString(body?.url);
+    if (!url) return c.json({ error: 'url_required' }, 400);
+
+    const valid = validateSubmissionUrl(url);
+    if (!valid.valid) return c.json({ error: valid.error || 'invalid_url' }, 400);
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      const res = await runtime.fetchImpl(url, {
+        signal: controller.signal,
+        headers: {
+          'user-agent': runtime.env.RADAR_USER_AGENT,
+          accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+      });
+      clearTimeout(timer);
+      if (!res.ok) {
+        return c.json({ error: 'fetch_failed', status: res.status }, 502);
+      }
+      const html = await res.text();
+      const preview = extractPreviewFromHtml(html, url);
+      return c.json({ ok: true, preview });
+    } catch (err) {
+      return c.json(
+        { error: 'preview_failed', message: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
+  });
+
+  app.post('/api/submit', async (c) => {
+    if (!await canRead(c, runtime)) return c.json({ error: 'unauthorized' }, 401);
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body) return c.json({ error: 'invalid_json' }, 400);
+
+    const title = asString(body.title);
+    const text = asString(body.text);
+    if (!title && !text) return c.json({ error: 'title_or_text_required' }, 400);
+
+    const url = asString(body.url);
+    const rawType = asString(body.type);
+    const type: LeadType = rawType === 'job' || rawType === 'gig' ? rawType : 'gig';
+
+    const sources = await runtime.store.listSources();
+    let source =
+      sources.find((s) => s.kind === 'webhook' && s.enabled) ??
+      sources.find((s) => s.kind === 'webhook');
+    if (!source) {
+      source = await runtime.store.createSource({
+        kind: 'webhook',
+        title: 'Ручное добавление',
+        config: {},
+        enabled: true,
+      });
+    }
+
+    const rawLead: RawLead = {
+      sourceId: source.id,
+      type,
+      title: title ?? text ?? '',
+      text: text ?? title ?? '',
+      url,
+      author: asString(body.author) || 'Web Submission',
+      city: asString(body.city),
+      budget: asNumber(body.budget),
+      currency: asString(body.currency) ?? 'RUB',
+      skills: Array.isArray(body.skills)
+        ? (body.skills as string[]).filter((s) => typeof s === 'string')
+        : undefined,
+      isRemote: typeof body.isRemote === 'boolean' ? body.isRemote : true,
+      externalId: url ? `url:${url}` : `manual:${Date.now()}`,
+      raw: body,
+    };
+
+    const outcome = await ingestRawLead(rawLead, source, deps(runtime));
+    return c.json({
+      ok: outcome.status === 'inserted' || outcome.status === 'duplicate' || outcome.status === 'delivered',
+      status: outcome.status,
+      lead: outcome.lead,
+      leadId: outcome.lead?.id,
+      reasons: outcome.reasons,
+    });
   });
 
   const serveFeed = async (c: Context) => {

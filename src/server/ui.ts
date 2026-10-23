@@ -636,6 +636,36 @@ legend {
   padding: 0 6px;
 }
 .hint { color: var(--muted); font-size: 12px; }
+.type-selector {
+  display: inline-flex;
+  gap: 16px;
+  align-items: center;
+}
+.radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+.radio-label input[type="radio"] {
+  width: auto;
+  margin: 0;
+  accent-color: var(--ink);
+  cursor: pointer;
+}
+.preview-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
 .error-box {
   border: 1px solid var(--rose);
   background: rgba(239, 68, 68, 0.06);
@@ -1105,7 +1135,7 @@ window.addEventListener('keydown', (e) => {
     active: 'leads',
     body,
     actions:
-      '<button class="btn ghost" type="button" onclick="document.getElementById(\'add-source-dialog\')?.showModal()">Добавить источник</button><button class="btn" data-poll="/api/poll">Опросить все</button>',
+      '<a class="btn" href="/submit">Добавить по ссылке</a><button class="btn ghost" type="button" onclick="document.getElementById(\'add-source-dialog\')?.showModal()">Добавить источник</button><button class="btn" data-poll="/api/poll">Опросить все</button>',
     script: searchHotkeyScript,
   });
 }
@@ -1627,3 +1657,252 @@ document.addEventListener('DOMContentLoaded', () => {
     script,
   });
 }
+
+export interface SubmitPageData {
+  version: string;
+}
+
+export function renderSubmitPage(data: SubmitPageData): string {
+  const { version } = data;
+
+  const body = `
+<a class="back" href="/">← Все заказы</a>
+<div class="page-head">
+  <div>
+    <h1>Добавить по ссылке</h1>
+    <p class="muted small">Автоматический сбор описания вакансии или заказа через разметку страницы</p>
+  </div>
+</div>
+
+<form id="submit-form" method="post" action="/submit" class="form" style="max-width:760px">
+  <div style="display:flex;gap:10px;align-items:flex-start">
+    <div style="flex:1">
+      <input id="url-input" name="url" type="url" placeholder="Вставьте ссылку на вакансию или заказ (например, hh.ru, habr.com, vc.ru...)" required autofocus style="width:100%;padding:10px 14px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit;font-size:13.5px">
+      <div id="fetch-status" class="hint" style="margin-top:6px;min-height:18px"></div>
+    </div>
+    <button id="fetch-btn" type="button" class="btn" style="padding:10px 18px;white-space:nowrap">Получить данные</button>
+  </div>
+
+  <div id="preview-card" class="preview-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px">
+      <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;color:var(--muted)">Предпросмотр данных</span>
+      <div class="type-selector">
+        <label class="radio-label">
+          <input type="radio" name="leadType" value="gig" id="type-gig" checked>
+          <span>Заказ</span>
+        </label>
+        <label class="radio-label">
+          <input type="radio" name="leadType" value="job" id="type-job">
+          <span>Вакансия</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="title-input">Заголовок</label>
+      <input id="title-input" name="title" required placeholder="Например, Разработчик веб-интерфейсов">
+    </div>
+
+    <div class="grid">
+      <div class="field">
+        <label for="author-input">Компания / Автор</label>
+        <input id="author-input" name="author" placeholder="Компания или заказчик">
+      </div>
+      <div class="field">
+        <label for="city-input">Город / Локация</label>
+        <input id="city-input" name="city" placeholder="Москва, Ставрополь или Удалённо">
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="field">
+        <label for="budget-input">Бюджет / Вилка</label>
+        <input id="budget-input" name="budget" type="number" placeholder="Например, 150000">
+      </div>
+      <div class="field">
+        <label for="currency-input">Валюта</label>
+        <input id="currency-input" name="currency" value="RUB" placeholder="RUB, USD, EUR">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="text-input">Текст / Описание</label>
+      <textarea id="text-input" name="text" rows="8" required placeholder="Описание вакансии или проекта..." style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit;font-size:13px;line-height:1.5;resize:vertical"></textarea>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px">
+      <div id="submit-status" style="font-size:12px;color:var(--muted)"></div>
+      <button id="submit-btn" type="button" class="btn" style="padding:9px 20px">Опубликовать в Open Radar</button>
+    </div>
+  </div>
+</form>`;
+
+  const script = `<script>
+(function() {
+  const urlInput = document.getElementById('url-input');
+  const fetchBtn = document.getElementById('fetch-btn');
+  const fetchStatus = document.getElementById('fetch-status');
+  const titleInput = document.getElementById('title-input');
+  const authorInput = document.getElementById('author-input');
+  const cityInput = document.getElementById('city-input');
+  const budgetInput = document.getElementById('budget-input');
+  const currencyInput = document.getElementById('currency-input');
+  const textInput = document.getElementById('text-input');
+  const typeJob = document.getElementById('type-job');
+  const typeGig = document.getElementById('type-gig');
+  const submitBtn = document.getElementById('submit-btn');
+  const submitStatus = document.getElementById('submit-status');
+
+  let lastUrl = '';
+  let fetching = false;
+
+  async function fetchPreview(manualUrl) {
+    const raw = (manualUrl || urlInput.value || '').trim();
+    if (!raw || fetching) return;
+    if (!/^https?:\\/\\//i.test(raw)) {
+      fetchStatus.textContent = 'Укажите ссылку, начиная с http:// или https://';
+      fetchStatus.style.color = 'var(--rose)';
+      return;
+    }
+    if (raw === lastUrl) return;
+
+    fetching = true;
+    lastUrl = raw;
+    fetchBtn.disabled = true;
+    fetchStatus.textContent = 'Загрузка данных по ссылке...';
+    fetchStatus.style.color = 'var(--muted)';
+
+    try {
+      const res = await fetch('/api/preview', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: raw }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'fetch_failed' }));
+        throw new Error(err.error || ('HTTP ' + res.status));
+      }
+      const data = await res.json();
+      const p = data.preview || data;
+      if (p.type === 'job') {
+        typeJob.checked = true;
+      } else if (p.type === 'gig') {
+        typeGig.checked = true;
+      }
+      if (p.title) titleInput.value = p.title;
+      if (p.author || p.company) authorInput.value = p.author || p.company;
+      if (p.city) cityInput.value = p.city;
+      if (p.budget !== undefined && p.budget !== null) budgetInput.value = p.budget;
+      if (p.currency) currencyInput.value = p.currency;
+      if (p.text) textInput.value = p.text;
+
+      fetchStatus.textContent = 'Данные успешно загружены.';
+      fetchStatus.style.color = 'var(--emerald)';
+    } catch (err) {
+      fetchStatus.textContent = 'Не удалось извлечь данные: ' + err.message;
+      fetchStatus.style.color = 'var(--rose)';
+    } finally {
+      fetching = false;
+      fetchBtn.disabled = false;
+    }
+  }
+
+  fetchBtn.addEventListener('click', () => fetchPreview());
+
+  urlInput.addEventListener('paste', () => {
+    setTimeout(() => fetchPreview(), 50);
+  });
+
+  urlInput.addEventListener('blur', () => {
+    if (urlInput.value.trim() && urlInput.value.trim() !== lastUrl) {
+      fetchPreview();
+    }
+  });
+
+  urlInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      fetchPreview();
+    }
+  });
+
+  async function submitLead() {
+    const url = urlInput.value.trim();
+    const title = titleInput.value.trim();
+    const text = textInput.value.trim();
+
+    if (!url) {
+      submitStatus.textContent = 'Введите URL.';
+      submitStatus.style.color = 'var(--rose)';
+      urlInput.focus();
+      return;
+    }
+    if (!title) {
+      submitStatus.textContent = 'Укажите заголовок.';
+      submitStatus.style.color = 'var(--rose)';
+      titleInput.focus();
+      return;
+    }
+    if (!text) {
+      submitStatus.textContent = 'Укажите описание.';
+      submitStatus.style.color = 'var(--rose)';
+      textInput.focus();
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitStatus.textContent = 'Публикация...';
+    submitStatus.style.color = 'var(--muted)';
+
+    const payload = {
+      url,
+      title,
+      text,
+      type: typeJob.checked ? 'job' : 'gig',
+      author: authorInput.value.trim() || undefined,
+      city: cityInput.value.trim() || undefined,
+      budget: budgetInput.value ? Number(budgetInput.value) : undefined,
+      currency: currencyInput.value.trim() || 'RUB',
+    };
+
+    try {
+      const res = await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'submit_failed' }));
+        throw new Error(err.error || ('HTTP ' + res.status));
+      }
+      const data = await res.json();
+      const leadId = data.leadId || data.lead?.id || data.id;
+      if (leadId) {
+        window.location.href = '/leads/' + encodeURIComponent(leadId);
+      } else {
+        window.location.href = '/';
+      }
+    } catch (err) {
+      submitStatus.textContent = 'Ошибка публикации: ' + err.message;
+      submitStatus.style.color = 'var(--rose)';
+      submitBtn.disabled = false;
+    }
+  }
+
+  submitBtn.addEventListener('click', submitLead);
+  document.getElementById('submit-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitLead();
+  });
+})();
+</script>`;
+
+  return layout({
+    title: 'Добавить по ссылке',
+    version,
+    active: 'leads',
+    body,
+    script,
+  });
+}
+

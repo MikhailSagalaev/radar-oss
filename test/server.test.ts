@@ -840,4 +840,42 @@ describe('http server', () => {
 
     await runtime.store.close();
   });
+
+  it('serves /submit page and handles 1-click submission via /api/submit', async () => {
+    const runtime = makeRuntime({ RADAR_PUBLIC_READ: true });
+    const app = createApp(runtime);
+
+    // 1. GET /submit renders form
+    const pageRes = await app.request('/submit');
+    expect(pageRes.status).toBe(200);
+    const html = await pageRes.text();
+    expect(html).toContain('Добавить по ссылке');
+    expect(html).toContain('url-input');
+
+    // 2. POST /api/submit creates lead
+    const submitRes = await app.request('/api/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        url: 'https://example.com/jobs/senior-architect',
+        title: 'Lead Software Architect',
+        text: 'Microservices architecture with Go and Kubernetes',
+        type: 'job',
+        author: 'TechCorp',
+        budget: 350000,
+        currency: 'RUB',
+      }),
+    });
+    expect(submitRes.status).toBe(200);
+    const result = (await submitRes.json()) as { ok: boolean; leadId?: string };
+    expect(result.ok).toBe(true);
+    expect(result.leadId).toBeTruthy();
+
+    const stored = await runtime.store.getLead(result.leadId!);
+    expect(stored?.title).toBe('Lead Software Architect');
+    expect(stored?.type).toBe('job');
+    expect(stored?.budget).toBe(350000);
+
+    await runtime.store.close();
+  });
 });

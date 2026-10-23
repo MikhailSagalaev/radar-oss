@@ -185,7 +185,15 @@ async function sendPage() {
     if (!response.ok) {
       throw new Error((await response.text()).slice(0, 200) || `HTTP ${response.status}`);
     }
-    setStatus('Успешно отправлено в Radar', 'ok');
+    const data = await response.json().catch(() => null);
+    const leadId = data?.outcomes?.[0]?.lead?.id || data?.leadId;
+    if (leadId) {
+      const leadUrl = `${config.base}/leads/${encodeURIComponent(leadId)}`;
+      fields.status.innerHTML = `Отправлено в Radar. <a href="${leadUrl}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;display:block;margin-top:6px;font-weight:600">Открыть карточку →</a>`;
+      fields.status.className = 'status ok';
+    } else {
+      setStatus('Успешно отправлено в Radar', 'ok');
+    }
   } catch (error) {
     setStatus(error instanceof Error ? error.message : String(error), 'err');
   } finally {

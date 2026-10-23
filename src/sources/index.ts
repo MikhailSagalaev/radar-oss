@@ -1,6 +1,8 @@
 import type { SourceAdapter, SourceKind } from '../core/types.ts';
+import { hhSource } from './hh.ts';
 import { imapSource } from './imap.ts';
 import { kworkSource } from './kwork.ts';
+import { remoteokSource } from './remoteok.ts';
 import { rssSource } from './rss.ts';
 import { telegramSource } from './telegram.ts';
 import { trudvsemSource } from './trudvsem.ts';
@@ -30,6 +32,8 @@ export function createSourceRegistry(): SourceRegistry {
     .register(kworkSource)
     .register(webhookSource)
     .register(imapSource)
-    .register(trudvsemSource);
+    .register(trudvsemSource)
+    .register(hhSource)
+    .register(remoteokSource);
 }
 
