@@ -15,7 +15,8 @@ fi
 
 cd "$TARGET_DIR"
 echo "🔄 Обновляем репозиторий в $TARGET_DIR..."
-git pull origin main || true
+git fetch origin main
+git reset --hard origin/main
 
 # 2. Создаем production .env если его нет или дополняем обязательными секретами
 if [ ! -f .env ]; then
@@ -59,16 +60,27 @@ fi
 RADAR_HOST_PORT=$(grep -E "^RADAR_HOST_PORT=" .env | cut -d '=' -f2- | tr -d ' "' || true)
 RADAR_HOST_PORT=${RADAR_HOST_PORT:-8787}
 
-# 4. Запуск через Docker Compose
-echo "🐳 Сборка и запуск контейнеров (PostgreSQL 17 + pgvector + Radar Node app)..."
-docker compose down || true
-docker compose up -d --build
+# 4. Сборка нового образа приложения без остановки текущего
+echo "🔨 Сборка обновленного образа Radar..."
+docker compose build radar
 
-# 5. Проверка статуса и healthcheck с ретраями
-echo "⏳ Ожидаем запуск сервисов (порт $RADAR_HOST_PORT)..."
+# 5. Проверка работы базы данных
+echo "🐘 Проверка и запуск PostgreSQL..."
+docker compose up -d postgres
+
+# 6. Запуск миграций базы данных
+echo "📦 Применение миграций базы данных..."
+docker compose run --rm radar migrate
+
+# 7. Бесшовное обновление контейнера приложения
+echo "🔄 Перезапуск контейнера radar_app..."
+docker compose up -d --no-deps radar
+
+# 8. Проверка статуса и healthcheck с ретраями
+echo "⏳ Ожидаем готовность сервиса (порт $RADAR_HOST_PORT)..."
 HEALTH_OK=0
 for i in {1..12}; do
-  sleep 3
+  sleep 2
   if curl -fsS "http://127.0.0.1:${RADAR_HOST_PORT}/health" >/dev/null 2>&1; then
     HEALTH_OK=1
     break
@@ -78,7 +90,8 @@ done
 
 if [ "$HEALTH_OK" -ne 1 ]; then
   echo "❌ Healthcheck failed! Radar не ответил 200 OK на http://127.0.0.1:${RADAR_HOST_PORT}/health"
-  docker compose logs --tail 50
+  echo "Логи сервиса:"
+  docker compose logs radar --tail 50
   exit 1
 fi
 
