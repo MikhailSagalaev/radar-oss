@@ -1,59 +1,115 @@
-# Contributing
+# Contributing to Open Radar / Руководство контрибьютора
 
-Thanks for taking a look. Radar is a small project and the bar for a useful contribution is low: one working adapter, one fixture, one test.
+[English](#english) | [Русский](#русский)
 
-## Setup
+---
+
+<a name="english"></a>
+## English
+
+Thanks for taking a look. Open Radar is an open-source decentralized library of jobs (`job`) and gigs (`gig`) curated by community intelligence and free of paywalls, spam, and paid response fees.
+
+The bar for a useful contribution is straightforward: one working adapter, one fixture, one test.
+
+### Quick Setup
+
+```bash
+# 1. Install dependencies
+pnpm install
+
+# 2. Copy environment file
+cp .env.example .env
+
+# 3. Verify tests and TypeScript types
+pnpm test
+pnpm typecheck
+```
+
+Node.js 22+ and pnpm 10+ are required. The test suite uses an in-memory store (or PostgreSQL with pgvector when `RADAR_TEST_STORE=postgres` is set) and never calls the network in unit tests: adapters are tested against fixtures.
+
+### Adding a New Source Connector in 3 Steps
+
+We provide a built-in scaffold generator to make adding new sources fast and painless:
+
+#### Step 1: Run the generator
+```bash
+pnpm new:connector <source_name>
+```
+Example: `pnpm new:connector remotejobs`
+
+This automatically generates:
+1. `src/sources/adapters/<source_name>.ts` — Clean boilerplate adapter implementing `SourceAdapter`.
+2. `test/fixtures/<source_name>.json` — Sample sanitized response fixture.
+3. `test/sources/<source_name>.test.ts` — Ready-to-run vitest unit test.
+
+#### Step 2: Implement extraction
+Edit `src/sources/adapters/<source_name>.ts`:
+- Fetch data safely via `fetchText(ctx, url, headers)` or API client.
+- Extract structured fields: `title`, `text`, `url`, `budget`, `currency`, `skills`, `city`, `isRemote`.
+- Set lead `type`: `'job'` (permanent / full-time role) or `'gig'` (freelance / project task).
+- Always apply `sanitizePrivacy(rawText)` to ensure privacy compliance (strips phone numbers and personal emails).
+
+#### Step 3: Verify and open a Pull Request
+```bash
+pnpm test
+pnpm typecheck
+```
+Submit your Pull Request with a short description of the source and a sample parsed item.
+
+### Code Style & Guidelines
+- **Zero Emoji Doctrine:** No emojis in user interfaces, logs, or commit messages.
+- **Strict TypeScript:** No implicit `any`, 0 type errors.
+- **Privacy First (152-FZ / GDPR):** Never store raw phone numbers or personal emails.
+- **Polite Crawling:** Respect rate limits, set descriptive `User-Agent`, handle non-200 responses gracefully without throwing unhandled exceptions.
+
+---
+
+<a name="русский"></a>
+## Русский
+
+Open Radar — открытая библиотека вакансий (`job`) и заказов (`gig`), где качество данных регулируется коллективным отбором сообщества без платных откликов и накруток.
+
+Мы приветствуем добавление коннекторов к открытым площадкам, биржам, каналам и открытым API.
+
+### Быстрый запуск для разработки
 
 ```bash
 pnpm install
 cp .env.example .env
-pnpm typecheck
 pnpm test
-pnpm build
+pnpm typecheck
 ```
 
-Node 22.12+ and pnpm 11 are required. The test suite uses an in-memory store (or PostgreSQL with pgvector when RADAR_TEST_STORE=postgres is set) and never calls the network: adapters are tested against fixtures.
+Для локального запуска веб-интерфейса:
+```bash
+docker compose up -d postgres
+pnpm dev -- serve
+```
+Интерфейс откроется по адресу `http://localhost:8787`.
 
-## Adding a source adapter
+### Создание нового коннектора за 3 шага
 
-1. Create `src/sources/<name>.ts` and export a `SourceAdapter`.
-2. Register it in `src/sources/index.ts`.
-3. Put a small, sanitized HTML/XML/JSON fixture in `test/fixtures/`.
-4. Add a test to `test/sources.test.ts`.
-5. Declare `access` and `risks` honestly.
+#### Шаг 1. Запустите генератор каркаса
+```bash
+pnpm new:connector <название_источника>
+```
+Например: `pnpm new:connector devjobs`
 
-The adapter must:
+Команда автоматически создаст:
+1. `src/sources/adapters/devjobs.ts` — каркас адаптера с реализацией интерфейса `SourceAdapter`.
+2. `test/fixtures/devjobs.json` — пример сырого ответа источника для тестов.
+3. `test/sources/devjobs.test.ts` — юнит-тест, проверяющий корректность извлечения данных.
 
-- fetch only the URL from `source.config`;
-- respect `ctx.timeoutMs` and `ctx.userAgent`;
-- return `RawLead[]`, not database rows;
-- never throw for an empty page: return `[]` and log a warning;
-- never bypass login, CAPTCHA, paywalls or private groups;
-- never include a real person's phone, address or other personal data in a fixture.
+#### Шаг 2. Реализуйте логику парсинга
+Откройте созданный файл `src/sources/adapters/devjobs.ts`:
+- Загрузите данные через `fetchText(ctx, url, headers)`.
+- Заполните поля `RawLead`: заголовок, текст, ссылка, вилка бюджета, стек, город, формат (удалёнка или офис).
+- Укажите тип: `'job'` (вакансия в штат) или `'gig'` (проектный заказ).
+- Обязательно примените функцию `sanitizePrivacy(text)` для скрытия персональных контактов.
 
-If a source requires an account or a session cookie, it is out of scope for the default adapters. Use the `webhook` source: the operator supplies the data they already have access to.
-
-## Adding a sink
-
-1. Create `src/sinks/<name>.ts` with a `SinkAdapter`.
-2. Register it in `createSinkRegistry`.
-3. Keep the payload minimal and log errors instead of throwing past the pipeline.
-4. Add a test with a mocked `fetch`.
-
-## Code style
-
-- TypeScript strict mode; no `any` unless there is no reasonable alternative.
-- Small modules, pure functions in `src/core`, side effects in adapters.
-- Comments explain *why*, not *what*.
-- No new runtime dependency without a short note in the pull request.
-
-## Commits and pull requests
-
-- One adapter or one behavior per pull request.
-- Describe the source, its access level and what can break.
-- Include the test command output.
-- Do not commit `.env`, databases, logs or scraped personal data.
-
-## Legal
-
-By contributing an adapter you confirm that it does not bypass a protection and that you have checked the source's terms. Maintainers may remove an adapter on a platform request.
+#### Шаг 3. Проверьте тесты и отправьте PR
+```bash
+pnpm test
+pnpm typecheck
+```
+Создайте Pull Request на GitHub. Мы оперативно проверяем и объединяем коннекторы. Спасибо за вклад в открытый интернет!
