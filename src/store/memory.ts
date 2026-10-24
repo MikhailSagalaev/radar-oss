@@ -400,6 +400,18 @@ export class MemoryStore implements Store {
     this.sessions.delete(sessionId);
   }
 
+  async purgeExpiredSessions(): Promise<number> {
+    const now = new Date().toISOString();
+    let removed = 0;
+    for (const [id, session] of this.sessions.entries()) {
+      if (session.expiresAt <= now) {
+        this.sessions.delete(id);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   async upsertGitHubUser(input: UpsertGitHubUserInput): Promise<UserRecord> {
     const existingId = this.usersByGithubId.get(input.githubId);
     if (existingId !== undefined) {

@@ -13,6 +13,7 @@ import type { Runtime } from '../runtime.ts';
 import { SOURCE_PRESETS } from '../sources/presets.ts';
 import { VERSION } from '../version.ts';
 import { githubOAuthConfigured, startGitHubOAuth, handleGitHubCallback } from './auth.ts';
+import { rateLimit } from './ratelimit.ts';
 import {
   renderExtensionPage,
   renderLeadPage,
@@ -392,6 +393,11 @@ export function createApp(runtime: Runtime): Hono {
     c.header('X-Frame-Options', 'DENY');
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    // The dashboard uses inline scripts and styles, hence 'unsafe-inline'.
+    c.header(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    );
 
     const method = c.req.method.toUpperCase();
     if (['POST', 'PATCH', 'DELETE'].includes(method)) {
@@ -438,7 +444,7 @@ export function createApp(runtime: Runtime): Hono {
   app.get('/auth/github', (c) => startGitHubOAuth(c, runtime));
   app.get('/auth/github/callback', (c) => handleGitHubCallback(c, runtime));
 
-  app.post('/login', async (c) => {
+  app.post('/login', rateLimit({ windowMs: 15 * 60_000, max: 10 }), async (c) => {
     const expected = runtime.env.RADAR_ADMIN_TOKEN;
     if (!expected) return c.redirect('/');
     const body = await c.req.parseBody();
@@ -539,7 +545,7 @@ export function createApp(runtime: Runtime): Hono {
     );
   });
 
-  app.post('/submit', async (c) => {
+  app.post('/submit', rateLimit({ windowMs: 10 * 60_000, max: 30 }), async (c) => {
     const user = await currentUser(c, runtime);
     if (!user) return c.redirect('/login');
     const body = await c.req.parseBody();
@@ -829,10 +835,10 @@ export function createApp(runtime: Runtime): Hono {
     return c.redirect(`/leads/${id}`);
   });
 
-  app.post('/leads/:id/vote', async (c) => {
+  app.post('/leads/:id/vote', rateLimit({ windowMs: 60_000, max: 30 }), async (c) => {
     const user = await currentUser(c, runtime);
     if (!user) return c.redirect('/login');
-    const id = c.req.param('id');
+    const id = c.req.param('id') as string;
     const contentType = c.req.header('content-type') || '';
     let signal: string | undefined;
     if (contentType.includes('application/json')) {
@@ -886,10 +892,10 @@ export function createApp(runtime: Runtime): Hono {
     return c.json({ ok: true, id, status });
   });
 
-  app.post('/api/leads/:id/vote', async (c) => {
+  app.post('/api/leads/:id/vote', rateLimit({ windowMs: 60_000, max: 30 }), async (c) => {
     const user = await currentUser(c, runtime);
     if (!user) return c.json({ error: 'login_required' }, 401);
-    const id = c.req.param('id');
+    const id = c.req.param('id') as string;
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const signal = typeof body?.signal === 'string' ? body.signal : undefined;
     const validSignals: VoteSignal[] = ['useful', 'junk', 'scam', 'closed'];
@@ -1044,8 +1050,8 @@ export function createApp(runtime: Runtime): Hono {
     return c.json(summary);
   });
 
-  app.post('/api/ingest/:sourceId', async (c) => {
-    const source = await runtime.store.getSource(c.req.param('sourceId'));
+  app.post('/api/ingest/:sourceId', rateLimit({ windowMs: 60_000, max: 120 }), async (c) => {
+    const source = await runtime.store.getSource(c.req.param('sourceId') as string);
     if (!source) return c.json({ error: 'not_found' }, 404);
 
     const sourceToken =
@@ -1082,7 +1088,7 @@ export function createApp(runtime: Runtime): Hono {
     return c.json({ sourceId: source.id, accepted: outcomes.length, outcomes });
   });
 
-  app.post('/api/preview', async (c) => {
+  app.post('/api/preview', rateLimit({ windowMs: 10 * 60_000, max: 30 }), async (c) => {
     if (!await canRead(c, runtime)) return c.json({ error: 'unauthorized' }, 401);
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const url = asString(body?.url);
@@ -1108,7 +1114,7 @@ export function createApp(runtime: Runtime): Hono {
     }
   });
 
-  app.post('/api/submit', async (c) => {
+  app.post('/api/submit', rateLimit({ windowMs: 10 * 60_000, max: 30 }), async (c) => {
     const user = await currentUser(c, runtime);
     if (!user) return c.json({ error: 'login_required' }, 401);
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;

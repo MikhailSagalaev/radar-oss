@@ -215,16 +215,16 @@ export class PostgresStore implements Store {
           id, source_id, external_id, url, canonical_url, title, text,
           author, city, budget, currency, category, skills_json, is_remote,
           metadata_json, published_at, fingerprint, title_key, status, score,
-          reasons_json, created_at, delivered_at,
+          reasons_json, created_at, delivered_at, type,
           votes_up, votes_down, votes_scam, votes_closed, quality_score,
           raw_salary, payment_period, normalized_usd_min, normalized_usd_max
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7,
           $8, $9, $10, $11, $12, $13::jsonb, $14,
           $15::jsonb, $16, $17, $18, $19, $20,
-          $21::jsonb, $22, $23,
-          $24, $25, $26, $27, $28,
-          $29, $30, $31, $32
+          $21::jsonb, $22, $23, $24,
+          $25, $26, $27, $28, $29,
+          $30, $31, $32, $33
         ) ON CONFLICT DO NOTHING`,
         [
           lead.id,
@@ -250,6 +250,7 @@ export class PostgresStore implements Store {
           JSON.stringify(lead.reasons ?? []),
           new Date(lead.createdAt),
           lead.deliveredAt ? new Date(lead.deliveredAt) : null,
+          lead.type ?? 'gig',
           lead.votes_up ?? 0,
           lead.votes_down ?? 0,
           lead.votes_scam ?? 0,
@@ -550,7 +551,7 @@ export class PostgresStore implements Store {
           errors,
           runs,
         },
-        successRate: runs === 0 ? 1 : Math.max(0, (runs - errors) / runs),
+        successRate: runs === 0 ? 0 : Math.round(((runs - errors) / runs) * 100),
       };
     });
   }
@@ -736,6 +737,11 @@ export class PostgresStore implements Store {
 
   async deleteSession(sessionId: string): Promise<void> {
     await this.pool.query(`DELETE FROM sessions WHERE id = $1`, [sessionId]);
+  }
+
+  async purgeExpiredSessions(): Promise<number> {
+    const res = await this.pool.query(`DELETE FROM sessions WHERE expires_at < NOW()`);
+    return res.rowCount ?? 0;
   }
 
   async upsertGitHubUser(input: UpsertGitHubUserInput): Promise<UserRecord> {

@@ -37,5 +37,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --audit-level high
       - run: pnpm typecheck
-      - run: pnpm test
+      - name: Run tests against the in-memory store
+        run: pnpm test
+      - name: Run tests against PostgreSQL
+        env:
+          RADAR_TEST_STORE: postgres
+          DATABASE_URL: postgres://radar:test_password@127.0.0.1:5432/radar_test
+        run: pnpm test
       - run: pnpm build

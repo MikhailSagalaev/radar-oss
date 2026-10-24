@@ -114,6 +114,7 @@ export interface Store {
   getUserBySession?(sessionId: string): Promise<UserRecord | null>;
   /** One vote per user per signal; repeated votes of the same signal are ignored. */
   recordUserVote?(leadId: string, userId: number, signal: LeadVoteSignal): Promise<UserVoteResult>;
+  purgeExpiredSessions?(): Promise<number>;
 
   deleteLead?(id: string): Promise<boolean>;
   cleanupOldLeads?(retentionDays: number): Promise<number>;

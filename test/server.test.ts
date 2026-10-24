@@ -256,6 +256,40 @@ describe('http server', () => {
     await runtime.store.close();
   });
 
+  it('rate limits brute-force attempts on /login', async () => {
+    const runtime = makeRuntime();
+    const app = createApp(runtime);
+
+    // The limiter allows 10 attempts per 15 minutes per client.
+    let lastStatus = 0;
+    for (let attempt = 0; attempt < 11; attempt++) {
+      const res = await app.request('/login', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          'x-forwarded-for': '203.0.113.7',
+          origin: 'http://localhost',
+        },
+        body: formBody({ token: 'wrong-token' }),
+      });
+      lastStatus = res.status;
+    }
+    expect(lastStatus).toBe(429);
+
+    // A different client IP keeps its own bucket.
+    const otherClient = await app.request('/login', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'x-forwarded-for': '198.51.100.9',
+        origin: 'http://localhost',
+      },
+      body: formBody({ token: 'wrong-token' }),
+    });
+    expect(otherClient.status).toBe(401);
+    await runtime.store.close();
+  });
+
   it('rejects cross-origin form posts', async () => {
     const runtime = makeRuntime();
     const sessionId = await makeAdminSession(runtime);

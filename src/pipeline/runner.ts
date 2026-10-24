@@ -71,8 +71,14 @@ export class PollRunner {
       // храним их 30 дней, чтобы таблицы не росли бесконечно.
       const outbox = await store.cleanupOutboxEvents?.(30);
       const runs = await store.cleanupRuns?.(30);
-      if (leads || outbox || runs) {
-        this.logger.info('maintenance cleanup finished', { leads, outboxEvents: outbox, runs });
+      const sessions = await store.purgeExpiredSessions?.();
+      if (leads || outbox || runs || sessions) {
+        this.logger.info('maintenance cleanup finished', {
+          leads,
+          outboxEvents: outbox,
+          runs,
+          sessions,
+        });
       }
     } catch (error) {
       this.logger.warn('maintenance cleanup failed', {
