@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- GitHub OAuth login (`/auth/github`): voting and lead submission via `/submit` now require a registered user; anonymous visitors can browse.
+- Votes are stored per user in `lead_votes` (one vote per signal, weight 1.0); client-supplied `weight`/`reputation` was removed from the vote API until the reputation engine ships.
+- The lead funnel (statuses and `+10/-20` feedback) is admin-only again.
+- Security fixes: `/api/preview` fetches through the SSRF-guarded client with DNS checks on every redirect hop; the RSS feed escapes `]]>` inside CDATA; a duplicate `external_id` no longer aborts the whole poll run.
+- Added migration `005_github_auth.sql` (`sessions.user_id`).
+
 ## 0.3.0
 
 - Product UI: separate Leads and Sources pages, a lead detail page, search and status filters.

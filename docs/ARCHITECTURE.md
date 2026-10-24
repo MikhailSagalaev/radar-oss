@@ -1,6 +1,6 @@
 # Архитектура Radar
 
-Статус: v0.3.0. Документ описывает то, что уже реализовано, и границы, за которые пока не выходим.
+Статус: v0.4.0. Документ описывает то, что уже реализовано, и границы, за которые пока не выходим.
 
 ## 1. Задача
 
@@ -81,7 +81,7 @@ Radar — самостоятельный сервис, который превр
 
 ```ts
 interface SourceAdapter {
-  kind: 'rss' | 'telegram' | 'kwork' | 'webhook';
+  kind: 'rss' | 'telegram' | 'kwork' | 'webhook' | 'imap' | 'trudvsem' | 'hh' | 'remoteok';
   access: 'official' | 'public' | 'user-provided' | 'auth-required';
   description: string;
   risks: string[];
@@ -109,21 +109,26 @@ interface SinkAdapter {
 ```
 sources(id, kind, title, enabled, config_json, created_at, updated_at)
 leads(id, source_id, external_id, url, canonical_url, title, text, author,
-      city, budget, published_at, fingerprint, title_key, status, score,
+      city, budget, type, fingerprint, title_key, status, score,
+      votes_up, votes_down, votes_scam, votes_closed, quality_score,
       reasons_json, created_at, delivered_at)
+lead_votes(user_id, lead_id, signal, weight, counted_at, created_at)
+app_users(id, tg_id, github_id, handle, role, reputation, created_at, banned_at)
 deliveries(id, lead_id, sink, status, error, created_at)
+lead_deliveries(lead_id, sink, status, attempts, next_attempt_at, last_error)
+outbox_events(id, event_type, payload, status, created_at, processed_at)
 runs(id, source_id, started_at, finished_at, found, inserted,
      duplicates, rejected, delivered, error)
-settings(key, value)
+sessions(id, user_id, created_at, expires_at)
 ```
 
 Индексы:
 
-- `UNIQUE(fingerprint)` — точный дедуп;
-- `UNIQUE(source_id, external_id)` — идемпотентность источника;
-- `(status, created_at)`, `(source_id, created_at)`, `(title_key, created_at)` — выборки и кросс-дубль.
+- `UNIQUE(fingerprint)` и `UNIQUE(source_id, external_id)` — двухуровневый дедуп;
+- `PRIMARY KEY (user_id, lead_id, signal)` в `lead_votes` — один голос на участника;
+- `(status, created_at)`, `(source_id, created_at)`, `(title_key, created_at)`, GIN по `tsvector` — выборки и поиск.
 
-`config_json` и `reasons_json` — JSON-строки. Секреты в БД не хранятся: только имена переменных окружения и токены вебхуков.
+`config_json` и `reasons_json` — JSON. Секреты в БД не хранятся: только имена переменных окружения и токены вебхуков. Таблицы `app_users`, `lead_votes` и колонка `leads.embedding` (halfvec) — задел под Этапы 3–4 роадмапа; эмбеддинги пока не заполняются.
 
 ## 7. Источники: политика
 
@@ -169,16 +174,17 @@ settings(key, value)
 ### HTTP
 
 - `GET /health` — публичный.
-- `GET /` — лиды с поиском и фильтрами по статусу; при заданном токене — через cookie-логин.
+- `GET /auth/github` и `GET /auth/github/callback` — OAuth-вход через GitHub; сессия в HttpOnly-cookie.
+- `GET /` — лиды с поиском и фильтрами по типу и статусу.
 - `GET /leads/:id` — карточка лида: полный текст, источник, скор, причины.
-- `GET /sources` — список источников с health и 24-часовыми счётчиками.
-- `GET /sources/new` — форма добавления источника для всех пяти типов.
-- `POST /sources` — создание источника из формы; webhook-токен показывается один раз.
-- `GET /sources/:id/edit` и `POST /sources/:id` — редактирование без пересоздания.
-- `POST /sources/:id/toggle` и `POST /sources/:id/delete` — управление из UI.
-- `GET /sources/:id` — health источника, конфигурация, лиды и запуски.
-- `GET /api/sources/health` — 24-часовые счётчики по каждому источнику.
-- `/api/*` — чтение: токен или `RADAR_PUBLIC_READ`; запись: только токен.
+- `POST /leads/:id/vote` и `POST /api/leads/:id/vote` — голосование; только пользователь с GitHub-входом, один голос на сигнал.
+- `POST /leads/:id/status`, `POST /leads/:id/feedback`, `PATCH /api/leads/:id/status` — воронка; только админ.
+- `GET /submit`, `POST /submit`, `POST /api/submit`, `POST /api/preview` — добавление по ссылке; запись — только после GitHub-входа, превью ходит через SSRF-guarded fetch.
+- `GET /feed.rss`, `/feed.xml`, `/api/feed.rss` — RSS-лента под запрос.
+- `GET /api/delta` — поток изменений для синхронизации узлов (JSON/NDJSON).
+- `GET /sources`, `/sources/new`, `/sources/:id`, `/sources/:id/edit` — дашборд источников.
+- `POST /sources`, `POST /sources/:id`, toggle/delete — управление; только админ.
+- `/api/*` — чтение: токен, GitHub-сессия или `RADAR_PUBLIC_READ`; управление источниками: только админ.
 - `/api/ingest/:sourceId` — админский токен или токен источника.
 
 ### Browser extension
@@ -192,8 +198,8 @@ settings(key, value)
 ## 11. Безопасность
 
 - Секреты только в env; `.env` в `.gitignore`.
-- Dashboard: HttpOnly-cookie, SameSite=Lax; без токена — открыт только локально (ответственность оператора).
-- SSRF: адаптеры ходят только по URL из конфигурации источника; API не принимает произвольный URL для fetch.
+- Авторизация: админ-токен (минимум 32 символа в production) и GitHub OAuth (`read:user`, state-проверка) для участников. Сессии в HttpOnly/SameSite-cookie; сессия пользователя не даёт админских прав.
+- SSRF: исходящие запросы (`fetchText`, `fetchSafeHttp`) резолвят DNS и блокируют приватные/метаданные-адреса на каждом редиректе; `/api/preview` ходит через тот же guard.
 - Вебхук: отдельный токен на источник, лимит 100 объектов за запрос.
 - HTML из источников не рендерится как HTML: только текст и экранирование.
 - Prompt injection: текст лида передаётся классификатору как данные, без инструментов и без исполнения.
@@ -232,12 +238,20 @@ Radar — инструмент, а не разрешение. Ответстве
 - Редактирование источника без пересоздания.
 - Понятные первые шаги и пустые состояния.
 
-### v0.4
+### v0.4 (сделано)
+
+- GitHub OAuth: голосование и `/submit` — только для зарегистрированных участников; вес голоса 1.0, один голос на сигнал (`lead_votes`).
+- Воронка статусов возвращена под админ-токен.
+- `/api/preview` переведён на SSRF-guarded fetch; RSS-фид экранирует CDATA; дубликат `external_id` не роняет опрос.
+- Генератор коннекторов пишет адаптер сразу в `src/sources/`.
+
+### v0.5 (план)
 
 - Плагинный SDK с внешними адаптерами.
-- PostgreSQL и несколько воркеров.
+- Несколько воркеров и ретеншен-джоба (`RADAR_RETENTION_DAYS` уже есть в конфиге, но не подключена).
 - Экспорт в Notion/CRM/почту.
 - RSS auto-discovery и универсальный JSON-источник.
+- Консюмер `outbox_events` либо его отключение до появления хаба.
 
 ### v1.0
 

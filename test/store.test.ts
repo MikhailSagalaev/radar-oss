@@ -196,6 +196,34 @@ describe('store', () => {
     expect(await store.getLead('lead-old')).toBeNull();
     expect(await store.getLead('lead-recent')).not.toBeNull();
 
+    // Runs cleanup: old run rows go, recent ones stay
+    await store.recordRun({
+      id: 'run-old',
+      sourceId: source.id,
+      startedAt: oldDate,
+      finishedAt: oldDate,
+      found: 0,
+      inserted: 0,
+      duplicates: 0,
+      rejected: 0,
+      delivered: 0,
+    });
+    await store.recordRun({
+      id: 'run-new',
+      sourceId: source.id,
+      startedAt: recentDate,
+      finishedAt: recentDate,
+      found: 1,
+      inserted: 1,
+      duplicates: 0,
+      rejected: 0,
+      delivered: 1,
+    });
+    const removedRuns = await store.cleanupRuns(30);
+    expect(removedRuns).toBe(1);
+    const runs = await store.listRuns(10, source.id);
+    expect(runs.map((r) => r.id)).toEqual(['run-new']);
+
     await store.close();
   });
 
@@ -322,6 +350,7 @@ describe('store', () => {
         title: 'Senior C++ Developer',
         text: 'Highload network programming in C++20 and Qt',
         fingerprint: 'fp-cpp',
+        externalId: 'ext-cpp',
       }),
     );
     await store.insertLead(
@@ -331,6 +360,7 @@ describe('store', () => {
         title: 'Backend C# Engineer',
         text: 'Enterprise API in .NET 8 and C#',
         fingerprint: 'fp-csharp',
+        externalId: 'ext-csharp',
       }),
     );
 

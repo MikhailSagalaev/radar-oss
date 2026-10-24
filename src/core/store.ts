@@ -2,6 +2,7 @@ import type {
   Lead,
   LeadStatus,
   LeadType,
+  LeadVoteSignal,
   RunRecord,
   SourceConfig,
   SourceHealth,
@@ -43,6 +44,29 @@ export interface LeadDeliveryRecord {
   updatedAt: string;
 }
 
+export interface UpsertGitHubUserInput {
+  githubId: number;
+  handle: string;
+}
+
+export interface UserRecord {
+  id: number;
+  githubId: number;
+  handle: string;
+  role: string;
+  createdAt: string;
+}
+
+export interface UserVoteResult {
+  votes_up: number;
+  votes_down: number;
+  votes_scam: number;
+  votes_closed: number;
+  score: number;
+  status: LeadStatus;
+  alreadyVoted: boolean;
+}
+
 export interface Store {
   init?(): Promise<void>;
   listSources(): Promise<SourceRecord[]>;
@@ -81,12 +105,20 @@ export interface Store {
   getPendingDeliveries?(limit?: number): Promise<LeadDeliveryRecord[]>;
   getLeadDeliveries?(leadId: string): Promise<LeadDeliveryRecord[]>;
 
-  createSession?(sessionId: string, expiresAt: string): Promise<void>;
+  createSession?(sessionId: string, expiresAt: string, userId?: number): Promise<void>;
+  /** True only for admin sessions (created by the token login, without a user). */
   validateSession?(sessionId: string): Promise<boolean>;
   deleteSession?(sessionId: string): Promise<void>;
 
+  upsertGitHubUser?(input: UpsertGitHubUserInput): Promise<UserRecord>;
+  getUserBySession?(sessionId: string): Promise<UserRecord | null>;
+  /** One vote per user per signal; repeated votes of the same signal are ignored. */
+  recordUserVote?(leadId: string, userId: number, signal: LeadVoteSignal): Promise<UserVoteResult>;
+
   deleteLead?(id: string): Promise<boolean>;
   cleanupOldLeads?(retentionDays: number): Promise<number>;
+  cleanupOutboxEvents?(retentionDays: number): Promise<number>;
+  cleanupRuns?(retentionDays: number): Promise<number>;
 
   close(): Promise<void>;
 }

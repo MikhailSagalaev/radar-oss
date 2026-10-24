@@ -5,6 +5,7 @@ import { normalizeTechTokens } from '../core/text.ts';
 import type {
   Lead,
   LeadStatus,
+  LeadVoteSignal,
   RunRecord,
   SourceConfig,
   SourceHealth,
@@ -18,6 +19,9 @@ import type {
   ListLeadsOptions,
   Store,
   UpdateSourceInput,
+  UpsertGitHubUserInput,
+  UserRecord,
+  UserVoteResult,
 } from '../core/store.ts';
 
 import { checkMigrations } from './migrator.ts';
@@ -221,7 +225,7 @@ export class PostgresStore implements Store {
           $21::jsonb, $22, $23,
           $24, $25, $26, $27, $28,
           $29, $30, $31, $32
-        ) ON CONFLICT (fingerprint) DO NOTHING`,
+        ) ON CONFLICT DO NOTHING`,
         [
           lead.id,
           lead.sourceId,
@@ -712,18 +716,19 @@ export class PostgresStore implements Store {
     }));
   }
 
-  async createSession(sessionId: string, expiresAt: string): Promise<void> {
+  async createSession(sessionId: string, expiresAt: string, userId?: number): Promise<void> {
     await this.pool.query(
-      `INSERT INTO sessions (id, expires_at)
-       VALUES ($1, $2::timestamptz)
-       ON CONFLICT (id) DO UPDATE SET expires_at = $2::timestamptz`,
-      [sessionId, expiresAt]
+      `INSERT INTO sessions (id, expires_at, user_id)
+       VALUES ($1, $2::timestamptz, $3)
+       ON CONFLICT (id) DO UPDATE SET expires_at = $2::timestamptz, user_id = $3`,
+      [sessionId, expiresAt, userId ?? null]
     );
   }
 
+  /** Admin sessions (token login) have user_id = NULL; GitHub sessions carry a user. */
   async validateSession(sessionId: string): Promise<boolean> {
     const res = await this.pool.query(
-      `SELECT 1 FROM sessions WHERE id = $1 AND expires_at > NOW()`,
+      `SELECT 1 FROM sessions WHERE id = $1 AND user_id IS NULL AND expires_at > NOW()`,
       [sessionId]
     );
     return (res.rowCount ?? 0) > 0;
@@ -731,6 +736,131 @@ export class PostgresStore implements Store {
 
   async deleteSession(sessionId: string): Promise<void> {
     await this.pool.query(`DELETE FROM sessions WHERE id = $1`, [sessionId]);
+  }
+
+  async upsertGitHubUser(input: UpsertGitHubUserInput): Promise<UserRecord> {
+    const res = await this.pool.query(
+      `INSERT INTO app_users (github_id, handle, role)
+       VALUES ($1, $2, 'participant')
+       ON CONFLICT (github_id) DO UPDATE SET handle = EXCLUDED.handle
+       RETURNING id, github_id, handle, role, created_at`,
+      [input.githubId, input.handle]
+    );
+    const r = res.rows[0]!;
+    return {
+      id: Number(r.id),
+      githubId: Number(r.github_id),
+      handle: r.handle,
+      role: r.role,
+      createdAt: new Date(r.created_at).toISOString(),
+    };
+  }
+
+  async getUserBySession(sessionId: string): Promise<UserRecord | null> {
+    const res = await this.pool.query(
+      `SELECT u.id, u.github_id, u.handle, u.role, u.created_at
+       FROM sessions s
+       JOIN app_users u ON u.id = s.user_id
+       WHERE s.id = $1 AND s.expires_at > NOW()`,
+      [sessionId]
+    );
+    if (!res.rows[0]) return null;
+    const r = res.rows[0];
+    return {
+      id: Number(r.id),
+      githubId: Number(r.github_id),
+      handle: r.handle,
+      role: r.role,
+      createdAt: new Date(r.created_at).toISOString(),
+    };
+  }
+
+  async recordUserVote(
+    leadId: string,
+    userId: number,
+    signal: LeadVoteSignal,
+  ): Promise<UserVoteResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const res = await client.query('SELECT * FROM leads WHERE id = $1 FOR UPDATE', [leadId]);
+      const row = res.rows[0];
+      if (!row) {
+        await client.query('ROLLBACK');
+        throw new Error(`Lead not found: ${leadId}`);
+      }
+
+      const current = () => ({
+        votes_up: Number(row.votes_up) || 0,
+        votes_down: Number(row.votes_down) || 0,
+        votes_scam: Number(row.votes_scam) || 0,
+        votes_closed: Number(row.votes_closed) || 0,
+        score: Number(row.score) || 0,
+        status: row.status as LeadStatus,
+      });
+
+      const inserted = await client.query(
+        `INSERT INTO lead_votes (user_id, lead_id, signal, weight, counted_at)
+         VALUES ($1, $2, $3, 1.0, NOW())
+         ON CONFLICT (user_id, lead_id, signal) DO NOTHING`,
+        [userId, leadId, signal]
+      );
+
+      if ((inserted.rowCount ?? 0) === 0) {
+        await client.query('COMMIT');
+        return { ...current(), alreadyVoted: true };
+      }
+
+      let votes_up = Number(row.votes_up) || 0;
+      let votes_down = Number(row.votes_down) || 0;
+      let votes_scam = Number(row.votes_scam) || 0;
+      let votes_closed = Number(row.votes_closed) || 0;
+      if (signal === 'useful') votes_up += 1;
+      else if (signal === 'junk') votes_down += 1;
+      else if (signal === 'scam') votes_scam += 1;
+      else votes_closed += 1;
+
+      const baseScore =
+        row.quality_score !== null && row.quality_score !== undefined && Number(row.quality_score) > 0
+          ? Number(row.quality_score)
+          : Number(row.score) || 0;
+
+      const { score: newScore, status: newStatus } = recalculateVoteScoreAndStatus(
+        row.status as LeadStatus,
+        baseScore,
+        { useful: votes_up, junk: votes_down, scam: votes_scam, closed: votes_closed },
+      );
+
+      await client.query(
+        `UPDATE leads
+         SET votes_up = $1, votes_down = $2, votes_scam = $3, votes_closed = $4,
+             score = $5, status = $6, quality_score = COALESCE(quality_score, $7)
+         WHERE id = $8`,
+        [votes_up, votes_down, votes_scam, votes_closed, newScore, newStatus, baseScore, leadId]
+      );
+
+      await client.query(
+        `INSERT INTO outbox_events (event_type, payload) VALUES ($1, $2::jsonb)`,
+        ['lead.voted', JSON.stringify({ leadId, userId, signal, weight: 1.0, score: newScore, status: newStatus })]
+      );
+
+      await client.query('COMMIT');
+
+      return {
+        votes_up,
+        votes_down,
+        votes_scam,
+        votes_closed,
+        score: newScore,
+        status: newStatus,
+        alreadyVoted: false,
+      };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async deleteLead(id: string): Promise<boolean> {
@@ -741,6 +871,22 @@ export class PostgresStore implements Store {
   async cleanupOldLeads(retentionDays: number): Promise<number> {
     const res = await this.pool.query(
       `DELETE FROM leads WHERE created_at < NOW() - ($1 || ' days')::interval`,
+      [retentionDays]
+    );
+    return res.rowCount ?? 0;
+  }
+
+  async cleanupOutboxEvents(retentionDays: number): Promise<number> {
+    const res = await this.pool.query(
+      `DELETE FROM outbox_events WHERE created_at < NOW() - ($1 || ' days')::interval`,
+      [retentionDays]
+    );
+    return res.rowCount ?? 0;
+  }
+
+  async cleanupRuns(retentionDays: number): Promise<number> {
+    const res = await this.pool.query(
+      `DELETE FROM runs WHERE started_at < NOW() - ($1 || ' days')::interval`,
       [retentionDays]
     );
     return res.rowCount ?? 0;

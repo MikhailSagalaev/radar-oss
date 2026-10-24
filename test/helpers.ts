@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { loadEnv } from '../src/config.ts';
 import { createLogger } from '../src/core/logger.ts';
 import type { Env, Lead, PollContext, SinkAdapter, SourceRecord } from '../src/core/types.ts';
@@ -82,4 +83,19 @@ export function makeTestRuntime(overrides: Partial<Env> = {}): TestRuntime {
     sources: createSourceRegistry(),
     sinks: new SinkRegistry(),
   };
+}
+
+/** Registers a GitHub user and returns a session cookie value bound to it. */
+export async function makeUserSession(
+  runtime: TestRuntime,
+  handle = 'octocat',
+): Promise<string> {
+  if (!runtime.store.upsertGitHubUser || !runtime.store.createSession) {
+    throw new Error('store does not support GitHub users');
+  }
+  const user = await runtime.store.upsertGitHubUser({ githubId: 583231, handle });
+  const sessionId = `user-session-${randomUUID().slice(0, 8)}`;
+  const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
+  await runtime.store.createSession(sessionId, expiresAt, user.id);
+  return sessionId;
 }

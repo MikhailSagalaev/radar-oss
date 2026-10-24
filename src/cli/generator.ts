@@ -39,7 +39,7 @@ export function generateConnector(
   const format = options.format === 'html' ? 'html' : 'json';
   const rootDir = options.rootDir ? resolve(options.rootDir) : process.cwd();
 
-  const adapterDir = resolve(rootDir, 'src/sources/adapters');
+  const adapterDir = resolve(rootDir, 'src/sources');
   const fixtureDir = resolve(rootDir, 'test/fixtures');
   const testDir = resolve(rootDir, 'test/sources');
 
@@ -69,9 +69,9 @@ export function generateConnector(
   let testContent: string;
 
   if (format === 'json') {
-    adapterContent = `import type { RawLead, SourceAdapter, SourceRecord, PollContext } from '../../core/types.ts';
-import { fetchText } from '../http.ts';
-import { sanitizePrivacy } from '../../core/privacy.ts';
+    adapterContent = `import type { RawLead, SourceAdapter, SourceRecord, PollContext } from '../core/types.ts';
+import { fetchText } from './http.ts';
+import { sanitizePrivacy } from '../core/privacy.ts';
 
 export const ${camelName}Source: SourceAdapter = {
   kind: '${cleanName}',
@@ -160,7 +160,7 @@ export const ${camelName}Source: SourceAdapter = {
     testContent = `import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { makeSource, pollContext } from '../helpers.ts';
-import { ${camelName}Source } from '../../src/sources/adapters/${cleanName}.ts';
+import { ${camelName}Source } from '../../src/sources/${cleanName}.ts';
 
 function fixture(filename: string): string {
   return readFileSync(new URL(\`../fixtures/\${filename}\`, import.meta.url), 'utf8');
@@ -184,9 +184,9 @@ describe('${cleanName} source adapter', () => {
 `;
   } else {
     adapterContent = `import * as cheerio from 'cheerio';
-import type { RawLead, SourceAdapter, SourceRecord, PollContext } from '../../core/types.ts';
-import { fetchText } from '../http.ts';
-import { sanitizePrivacy } from '../../core/privacy.ts';
+import type { RawLead, SourceAdapter, SourceRecord, PollContext } from '../core/types.ts';
+import { fetchText } from './http.ts';
+import { sanitizePrivacy } from '../core/privacy.ts';
 
 export const ${camelName}Source: SourceAdapter = {
   kind: '${cleanName}',
@@ -254,7 +254,7 @@ export const ${camelName}Source: SourceAdapter = {
     testContent = `import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { makeSource, pollContext } from '../helpers.ts';
-import { ${camelName}Source } from '../../src/sources/adapters/${cleanName}.ts';
+import { ${camelName}Source } from '../../src/sources/${cleanName}.ts';
 
 function fixture(filename: string): string {
   return readFileSync(new URL(\`../fixtures/\${filename}\`, import.meta.url), 'utf8');

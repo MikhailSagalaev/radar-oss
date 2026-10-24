@@ -1,6 +1,6 @@
 # Plugins and adapters
 
-Radar ships with five sources and three sinks. Everything else is meant to be added as an adapter, not by patching the pipeline.
+Radar ships with eight sources (rss, telegram, kwork, webhook, imap, trudvsem, hh, remoteok) and three sinks. Everything else is meant to be added as an adapter, not by patching the pipeline.
 
 ## Two levels of extension
 

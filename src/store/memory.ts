@@ -7,10 +7,14 @@ import type {
   ListLeadsOptions,
   Store,
   UpdateSourceInput,
+  UpsertGitHubUserInput,
+  UserRecord,
+  UserVoteResult,
 } from '../core/store.ts';
 import type {
   Lead,
   LeadStatus,
+  LeadVoteSignal,
   RunRecord,
   SourceHealth,
   SourceRecord,
@@ -21,10 +25,15 @@ export class MemoryStore implements Store {
   private sources = new Map<string, SourceRecord>();
   private leads = new Map<string, Lead>();
   private leadsByFingerprint = new Map<string, string>();
+  private leadsByExternal = new Map<string, string>();
   private runs: RunRecord[] = [];
   private deliveries: Array<{ id: string; leadId: string; sink: string; status: string; error?: string; createdAt: string }> = [];
   private leadDeliveries = new Map<string, LeadDeliveryRecord>();
-  private sessions = new Map<string, { id: string; expiresAt: string }>();
+  private users = new Map<number, UserRecord>();
+  private usersByGithubId = new Map<number, number>();
+  private nextUserId = 1;
+  private userVotes = new Set<string>();
+  private sessions = new Map<string, { id: string; expiresAt: string; userId?: number }>();
 
   async init(): Promise<void> {}
 
@@ -112,6 +121,9 @@ export class MemoryStore implements Store {
     if (this.leadsByFingerprint.has(lead.fingerprint)) {
       return false;
     }
+    if (lead.externalId && this.leadsByExternal.has(`${lead.sourceId}:${lead.externalId}`)) {
+      return false;
+    }
     const storedLead: Lead = {
       ...lead,
       votes_up: lead.votes_up ?? 0,
@@ -122,6 +134,9 @@ export class MemoryStore implements Store {
     (storedLead as any).baseScore = lead.score;
     this.leads.set(lead.id, storedLead);
     this.leadsByFingerprint.set(lead.fingerprint, lead.id);
+    if (lead.externalId) {
+      this.leadsByExternal.set(`${lead.sourceId}:${lead.externalId}`, lead.id);
+    }
     return true;
   }
 
@@ -370,24 +385,109 @@ export class MemoryStore implements Store {
       .sort((a, b) => a.sink.localeCompare(b.sink));
   }
 
-  async createSession(sessionId: string, expiresAt: string): Promise<void> {
-    this.sessions.set(sessionId, { id: sessionId, expiresAt });
+  async createSession(sessionId: string, expiresAt: string, userId?: number): Promise<void> {
+    this.sessions.set(sessionId, { id: sessionId, expiresAt, userId });
   }
 
+  /** Admin sessions (token login) have no user; GitHub sessions carry one. */
   async validateSession(sessionId: string): Promise<boolean> {
     const s = this.sessions.get(sessionId);
     if (!s) return false;
-    return s.expiresAt > new Date().toISOString();
+    return s.userId === undefined && s.expiresAt > new Date().toISOString();
   }
 
   async deleteSession(sessionId: string): Promise<void> {
     this.sessions.delete(sessionId);
   }
 
+  async upsertGitHubUser(input: UpsertGitHubUserInput): Promise<UserRecord> {
+    const existingId = this.usersByGithubId.get(input.githubId);
+    if (existingId !== undefined) {
+      const existing = this.users.get(existingId)!;
+      const updated: UserRecord = { ...existing, handle: input.handle };
+      this.users.set(existingId, updated);
+      return updated;
+    }
+    const user: UserRecord = {
+      id: this.nextUserId++,
+      githubId: input.githubId,
+      handle: input.handle,
+      role: 'participant',
+      createdAt: new Date().toISOString(),
+    };
+    this.users.set(user.id, user);
+    this.usersByGithubId.set(input.githubId, user.id);
+    return user;
+  }
+
+  async getUserBySession(sessionId: string): Promise<UserRecord | null> {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.userId === undefined) return null;
+    if (session.expiresAt <= new Date().toISOString()) return null;
+    return this.users.get(session.userId) ?? null;
+  }
+
+  async recordUserVote(
+    leadId: string,
+    userId: number,
+    signal: LeadVoteSignal,
+  ): Promise<UserVoteResult> {
+    const lead = this.leads.get(leadId);
+    if (!lead) {
+      throw new Error(`Lead not found: ${leadId}`);
+    }
+
+    const voteKey = `${userId}:${leadId}:${signal}`;
+    if (this.userVotes.has(voteKey)) {
+      return {
+        votes_up: lead.votes_up ?? 0,
+        votes_down: lead.votes_down ?? 0,
+        votes_scam: lead.votes_scam ?? 0,
+        votes_closed: lead.votes_closed ?? 0,
+        score: lead.score,
+        status: lead.status,
+        alreadyVoted: true,
+      };
+    }
+    this.userVotes.add(voteKey);
+
+    if (signal === 'useful') lead.votes_up = (lead.votes_up ?? 0) + 1;
+    else if (signal === 'junk') lead.votes_down = (lead.votes_down ?? 0) + 1;
+    else if (signal === 'scam') lead.votes_scam = (lead.votes_scam ?? 0) + 1;
+    else lead.votes_closed = (lead.votes_closed ?? 0) + 1;
+
+    const baseScore = (lead as any).baseScore ?? lead.score;
+    const { score: newScore, status: newStatus } = recalculateVoteScoreAndStatus(
+      lead.status,
+      baseScore,
+      {
+        useful: lead.votes_up ?? 0,
+        junk: lead.votes_down ?? 0,
+        scam: lead.votes_scam ?? 0,
+        closed: lead.votes_closed ?? 0,
+      },
+    );
+    lead.score = newScore;
+    lead.status = newStatus;
+
+    return {
+      votes_up: lead.votes_up ?? 0,
+      votes_down: lead.votes_down ?? 0,
+      votes_scam: lead.votes_scam ?? 0,
+      votes_closed: lead.votes_closed ?? 0,
+      score: newScore,
+      status: newStatus,
+      alreadyVoted: false,
+    };
+  }
+
   async deleteLead(id: string): Promise<boolean> {
     const lead = this.leads.get(id);
     if (lead) {
       this.leadsByFingerprint.delete(lead.fingerprint);
+      if (lead.externalId) {
+        this.leadsByExternal.delete(`${lead.sourceId}:${lead.externalId}`);
+      }
     }
     return this.leads.delete(id);
   }
@@ -398,6 +498,9 @@ export class MemoryStore implements Store {
     for (const [id, lead] of this.leads.entries()) {
       if (lead.createdAt < cutoff) {
         this.leadsByFingerprint.delete(lead.fingerprint);
+        if (lead.externalId) {
+          this.leadsByExternal.delete(`${lead.sourceId}:${lead.externalId}`);
+        }
         this.leads.delete(id);
         removed++;
       }
@@ -405,13 +508,29 @@ export class MemoryStore implements Store {
     return removed;
   }
 
+  async cleanupOutboxEvents(_retentionDays: number): Promise<number> {
+    // The memory store keeps no outbox_events copy; delivery state lives in leadDeliveries.
+    return 0;
+  }
+
+  async cleanupRuns(retentionDays: number): Promise<number> {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 3600 * 1000).toISOString();
+    const before = this.runs.length;
+    this.runs = this.runs.filter((run) => run.startedAt >= cutoff);
+    return before - this.runs.length;
+  }
+
   async close(): Promise<void> {
     this.sources.clear();
     this.leads.clear();
     this.leadsByFingerprint.clear();
+    this.leadsByExternal.clear();
     this.runs = [];
     this.deliveries = [];
     this.leadDeliveries.clear();
+    this.users.clear();
+    this.usersByGithubId.clear();
+    this.userVotes.clear();
     this.sessions.clear();
   }
 }

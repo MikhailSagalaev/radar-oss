@@ -19,15 +19,6 @@ export const SOURCE_PRESETS: SourcePreset[] = [
     },
   },
   {
-    id: 'fl-webdev',
-    kind: 'rss',
-    title: 'FL.ru — Разработка сайтов',
-    description: 'RSS-фид категории «Веб-разработка и программирование» на FL.ru',
-    config: {
-      url: 'https://www.fl.ru/rss/all.xml?category=5',
-    },
-  },
-  {
     id: 'habr-career',
     kind: 'rss',
     title: 'Хабр Карьера — Вакансии и заказы',

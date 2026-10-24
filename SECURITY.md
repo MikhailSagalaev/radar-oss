@@ -16,8 +16,10 @@ Include:
 In scope:
 
 - authentication bypass of the admin API or dashboard;
+- bypass of the GitHub login gate on voting or lead submission (`/submit`, votes);
+- a user session escalating to admin rights;
 - webhook token bypass;
-- SSRF through a source adapter or the webhook endpoint;
+- SSRF through a source adapter, the webhook endpoint or `/api/preview`;
 - SQL injection or path traversal;
 - secret leakage in logs, errors or exports;
 - stored XSS in the dashboard.

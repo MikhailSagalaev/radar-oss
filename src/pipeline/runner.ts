@@ -2,9 +2,12 @@ import type { Logger } from '../core/types.ts';
 import { pollAll, type PollDeps } from './poll.ts';
 import { processOutbox } from './outbox.ts';
 
+const MAINTENANCE_INTERVAL_MS = 60 * 60 * 1000;
+
 export class PollRunner {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
+  private lastMaintenanceAt = 0;
 
   constructor(
     private readonly deps: PollDeps,
@@ -41,6 +44,8 @@ export class PollRunner {
           if (outboxRes.processed > 0) {
             this.logger.info('outbox delivery batch finished', outboxRes);
           }
+
+          await this.runMaintenanceIfDue();
         } catch (error) {
           this.logger.error('scheduled cycle failed', {
             error: error instanceof Error ? error.message : String(error),
@@ -53,6 +58,27 @@ export class PollRunner {
 
     tick();
     this.timer = setInterval(tick, Math.max(10, this.intervalSec) * 1000);
+  }
+
+  private async runMaintenanceIfDue(): Promise<void> {
+    if (Date.now() - this.lastMaintenanceAt < MAINTENANCE_INTERVAL_MS) return;
+    this.lastMaintenanceAt = Date.now();
+
+    const store = this.deps.store;
+    try {
+      const leads = await store.cleanupOldLeads?.(this.deps.env.RADAR_RETENTION_DAYS);
+      // Голоса-события и история запусков нужны для health (24ч) и аудита;
+      // храним их 30 дней, чтобы таблицы не росли бесконечно.
+      const outbox = await store.cleanupOutboxEvents?.(30);
+      const runs = await store.cleanupRuns?.(30);
+      if (leads || outbox || runs) {
+        this.logger.info('maintenance cleanup finished', { leads, outboxEvents: outbox, runs });
+      }
+    } catch (error) {
+      this.logger.warn('maintenance cleanup failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   stop(): void {

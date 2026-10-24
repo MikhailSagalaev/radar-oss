@@ -25,7 +25,7 @@ pnpm test
 pnpm typecheck
 ```
 
-Node.js 22+ and pnpm 10+ are required. The test suite uses an in-memory store (or PostgreSQL with pgvector when `RADAR_TEST_STORE=postgres` is set) and never calls the network in unit tests: adapters are tested against fixtures.
+Node.js 22+ and pnpm 11 are required. The test suite uses an in-memory store (or PostgreSQL with pgvector when `RADAR_TEST_STORE=postgres` is set) and never calls the network in unit tests: adapters are tested against fixtures.
 
 ### Adding a New Source Connector in 3 Steps
 
@@ -38,12 +38,12 @@ pnpm new:connector <source_name>
 Example: `pnpm new:connector remotejobs`
 
 This automatically generates:
-1. `src/sources/adapters/<source_name>.ts` — Clean boilerplate adapter implementing `SourceAdapter`.
+1. `src/sources/<source_name>.ts` — Clean boilerplate adapter implementing `SourceAdapter`.
 2. `test/fixtures/<source_name>.json` — Sample sanitized response fixture.
 3. `test/sources/<source_name>.test.ts` — Ready-to-run vitest unit test.
 
 #### Step 2: Implement extraction
-Edit `src/sources/adapters/<source_name>.ts`:
+Edit `src/sources/<source_name>.ts`:
 - Fetch data safely via `fetchText(ctx, url, headers)` or API client.
 - Extract structured fields: `title`, `text`, `url`, `budget`, `currency`, `skills`, `city`, `isRemote`.
 - Set lead `type`: `'job'` (permanent / full-time role) or `'gig'` (freelance / project task).
@@ -96,12 +96,12 @@ pnpm new:connector <название_источника>
 Например: `pnpm new:connector devjobs`
 
 Команда автоматически создаст:
-1. `src/sources/adapters/devjobs.ts` — каркас адаптера с реализацией интерфейса `SourceAdapter`.
+1. `src/sources/devjobs.ts` — каркас адаптера с реализацией интерфейса `SourceAdapter`.
 2. `test/fixtures/devjobs.json` — пример сырого ответа источника для тестов.
 3. `test/sources/devjobs.test.ts` — юнит-тест, проверяющий корректность извлечения данных.
 
 #### Шаг 2. Реализуйте логику парсинга
-Откройте созданный файл `src/sources/adapters/devjobs.ts`:
+Откройте созданный файл `src/sources/devjobs.ts`:
 - Загрузите данные через `fetchText(ctx, url, headers)`.
 - Заполните поля `RawLead`: заголовок, текст, ссылка, вилка бюджета, стек, город, формат (удалёнка или офис).
 - Укажите тип: `'job'` (вакансия в штат) или `'gig'` (проектный заказ).

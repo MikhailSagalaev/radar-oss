@@ -2,14 +2,17 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { escapeHtml, extractSubnet24 } from '../core/text.ts';
+import { escapeHtml } from '../core/text.ts';
 import { renderRssFeed } from './feed.ts';
+import type { UserRecord } from '../core/store.ts';
 import type { LeadStatus, LeadType, RawLead, SourceConfig, SourceKind, SourceRecord, VoteSignal } from '../core/types.ts';
 import { pollAll, pollSource } from '../pipeline/poll.ts';
 import { ingestRawLead, type IngestDeps } from '../pipeline/ingest.ts';
+import { fetchSafeHttp } from '../pipeline/preview.ts';
 import type { Runtime } from '../runtime.ts';
 import { SOURCE_PRESETS } from '../sources/presets.ts';
 import { VERSION } from '../version.ts';
+import { githubOAuthConfigured, startGitHubOAuth, handleGitHubCallback } from './auth.ts';
 import {
   renderExtensionPage,
   renderLeadPage,
@@ -60,10 +63,44 @@ async function isAdmin(c: Context, runtime: Runtime): Promise<boolean> {
 }
 
 async function canRead(c: Context, runtime: Runtime): Promise<boolean> {
-  return runtime.env.RADAR_PUBLIC_READ || (await isAdmin(c, runtime));
+  if (runtime.env.RADAR_PUBLIC_READ) return true;
+  // A logged-in GitHub user always keeps read access, public read or not.
+  if (await currentUser(c, runtime)) return true;
+  return isAdmin(c, runtime);
 }
 
-function loginPage(error?: string): string {
+/** GitHub-authenticated user of this session, if any. */
+async function currentUser(c: Context, runtime: Runtime): Promise<UserRecord | undefined> {
+  const sessionId = getCookie(c, 'radar_session');
+  if (!sessionId || !runtime.store.getUserBySession) return undefined;
+  const user = await runtime.store.getUserBySession(sessionId);
+  return user ?? undefined;
+}
+
+interface AuthDisplay {
+  /** GitHub handle when the session belongs to a registered user. */
+  handle?: string;
+}
+
+async function getAuthDisplay(c: Context, runtime: Runtime): Promise<AuthDisplay | undefined> {
+  const user = await currentUser(c, runtime);
+  if (user) return { handle: user.handle };
+  const sessionId = getCookie(c, 'radar_session');
+  if (sessionId && (await runtime.store.validateSession?.(sessionId))) return {};
+  return undefined;
+}
+
+function loginPage(error?: string, githubEnabled = false): string {
+  const githubButton = githubEnabled
+    ? `<a class="github-btn" href="/auth/github">Войти через GitHub</a>
+<div class="divider"><span>или</span></div>`
+    : '';
+  const githubStyle = githubEnabled
+    ? `.github-btn{display:block;width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px;font-weight:500;text-align:center;text-decoration:none;transition:border-color .15s ease}
+.github-btn:hover{border-color:var(--ink);text-decoration:none}
+.divider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:11px;margin:14px 0}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--line)}`
+    : '';
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Radar — вход</title>
 <style>
@@ -77,12 +114,14 @@ input:focus{outline:0;border-color:var(--ink);box-shadow:0 0 0 1px var(--ink),0 
 button{width:100%;padding:9px;border:0;border-radius:6px;background:var(--btn);color:var(--btn-text);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .15s ease,transform .1s ease}
 button:hover{opacity:0.9}button:active{transform:scale(0.98)}
 .error{color:var(--error);font-size:12.5px;font-weight:500;margin-bottom:12px;background:rgba(239,68,68,0.08);padding:6px 10px;border-radius:5px}
+${githubStyle}
 </style></head>
 <body><form method="post" action="/login">
-<h1>Radar</h1><p>Введите админ-токен из RADAR_ADMIN_TOKEN</p>
+<h1>Radar</h1><p>Голосование и добавление заказов — после входа. Токен администратора — для управления источниками.</p>
 ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
-<input name="token" type="password" autofocus autocomplete="current-password" placeholder="Токен">
-<button type="submit">Войти</button>
+${githubButton}
+<label style="display:contents"><input name="token" type="password" autofocus autocomplete="current-password" placeholder="Токен администратора"></label>
+<button type="submit">Войти по токену</button>
 </form></body></html>`;
 }
 
@@ -390,10 +429,14 @@ export function createApp(runtime: Runtime): Hono {
   });
 
   app.get('/login', async (c) => {
-    if (!runtime.env.RADAR_ADMIN_TOKEN) return c.redirect('/');
+    if (!runtime.env.RADAR_ADMIN_TOKEN && !githubOAuthConfigured(runtime)) return c.redirect('/');
     if (await isAdmin(c, runtime)) return c.redirect('/');
-    return c.html(loginPage());
+    if (await currentUser(c, runtime)) return c.redirect('/');
+    return c.html(loginPage(c.req.query('error'), githubOAuthConfigured(runtime)));
   });
+
+  app.get('/auth/github', (c) => startGitHubOAuth(c, runtime));
+  app.get('/auth/github/callback', (c) => handleGitHubCallback(c, runtime));
 
   app.post('/login', async (c) => {
     const expected = runtime.env.RADAR_ADMIN_TOKEN;
@@ -465,6 +508,7 @@ export function createApp(runtime: Runtime): Hono {
         status,
         type: type ?? '',
         version: VERSION,
+        auth: await getAuthDisplay(c, runtime),
       }),
     );
   });
@@ -477,17 +521,27 @@ export function createApp(runtime: Runtime): Hono {
       renderExtensionPage({
         version: VERSION,
         webhookSources,
+        auth: await getAuthDisplay(c, runtime),
       }),
     );
   });
 
   app.get('/submit', async (c) => {
     if (!await canRead(c, runtime)) return c.redirect('/login');
-    return c.html(renderSubmitPage({ version: VERSION }));
+    const user = await currentUser(c, runtime);
+    return c.html(
+      renderSubmitPage({
+        version: VERSION,
+        auth: await getAuthDisplay(c, runtime),
+        userHandle: user?.handle,
+        githubEnabled: githubOAuthConfigured(runtime),
+      }),
+    );
   });
 
   app.post('/submit', async (c) => {
-    if (!await canRead(c, runtime)) return c.redirect('/login');
+    const user = await currentUser(c, runtime);
+    if (!user) return c.redirect('/login');
     const body = await c.req.parseBody();
     const title = typeof body.title === 'string' ? body.title.trim() : '';
     const text = typeof body.text === 'string' ? body.text.trim() : '';
@@ -524,7 +578,7 @@ export function createApp(runtime: Runtime): Hono {
       title: title || text,
       text: text || title,
       url: url || undefined,
-      author: author || 'Web Submission',
+      author: author || user.handle,
       category,
       city,
       budget,
@@ -548,6 +602,7 @@ export function createApp(runtime: Runtime): Hono {
       renderSourcesPage({
         health: await runtime.store.getSourceHealth(),
         version: VERSION,
+        auth: await getAuthDisplay(c, runtime),
       }),
     );
   });
@@ -584,6 +639,7 @@ export function createApp(runtime: Runtime): Hono {
         mode: 'create',
         action: '/sources',
         submitLabel: 'Создать источник',
+        auth: await getAuthDisplay(c, runtime),
       }),
     );
   });
@@ -601,6 +657,7 @@ export function createApp(runtime: Runtime): Hono {
         action: `/sources/${source.id}`,
         submitLabel: 'Сохранить',
         sourceId: source.id,
+        auth: await getAuthDisplay(c, runtime),
       }),
     );
   });
@@ -723,6 +780,7 @@ export function createApp(runtime: Runtime): Hono {
             : c.req.query('updated') === '1'
               ? 'Изменения сохранены.'
               : undefined,
+        auth: await getAuthDisplay(c, runtime),
       }),
     );
   });
@@ -737,12 +795,13 @@ export function createApp(runtime: Runtime): Hono {
         lead,
         source: source ?? undefined,
         version: VERSION,
+        auth: await getAuthDisplay(c, runtime),
       }),
     );
   });
 
   app.post('/leads/:id/status', async (c) => {
-    if (!await canRead(c, runtime)) return c.redirect('/login');
+    if (!await isAdmin(c, runtime)) return c.redirect('/login');
     const id = c.req.param('id');
     const body = await c.req.parseBody();
     const rawStatus = typeof body.status === 'string' ? body.status : '';
@@ -758,7 +817,7 @@ export function createApp(runtime: Runtime): Hono {
   });
 
   app.post('/leads/:id/feedback', async (c) => {
-    if (!await canRead(c, runtime)) return c.redirect('/login');
+    if (!await isAdmin(c, runtime)) return c.redirect('/login');
     const id = c.req.param('id');
     const body = await c.req.parseBody();
     const feedback = typeof body.feedback === 'string' ? body.feedback : '';
@@ -771,7 +830,8 @@ export function createApp(runtime: Runtime): Hono {
   });
 
   app.post('/leads/:id/vote', async (c) => {
-    if (!await canRead(c, runtime)) return c.redirect('/login');
+    const user = await currentUser(c, runtime);
+    if (!user) return c.redirect('/login');
     const id = c.req.param('id');
     const contentType = c.req.header('content-type') || '';
     let signal: string | undefined;
@@ -782,24 +842,19 @@ export function createApp(runtime: Runtime): Hono {
       const body = await c.req.parseBody();
       signal = typeof body.signal === 'string' ? body.signal : undefined;
     }
-    const validSignals = ['useful', 'junk', 'scam', 'closed'];
-    if (!signal || !validSignals.includes(signal)) {
+    const validSignals: VoteSignal[] = ['useful', 'junk', 'scam', 'closed'];
+    if (!signal || !validSignals.includes(signal as VoteSignal)) {
       if (contentType.includes('application/json')) {
         return c.json({ error: 'invalid_signal', valid: validSignals }, 400);
       }
       return c.redirect(`/leads/${id}`);
     }
 
-    const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '127.0.0.1';
-    const subnet = extractSubnet24(clientIp);
-
     try {
-      const result = await runtime.store.recordVote(
-        id,
-        signal as 'useful' | 'junk' | 'scam' | 'closed',
-        1.0,
-        subnet,
-      );
+      const result = await runtime.store.recordUserVote?.(id, user.id, signal as VoteSignal);
+      if (!result) {
+        return c.json({ error: 'votes_not_supported' }, 500);
+      }
       if (contentType.includes('application/json') || c.req.header('accept')?.includes('application/json')) {
         return c.json({ ok: true, id, ...result });
       }
@@ -817,7 +872,7 @@ export function createApp(runtime: Runtime): Hono {
   });
 
   app.patch('/api/leads/:id/status', async (c) => {
-    if (!await canRead(c, runtime)) return c.json({ error: 'unauthorized' }, 401);
+    if (!await isAdmin(c, runtime)) return c.json({ error: 'unauthorized' }, 401);
     const id = c.req.param('id');
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const status = typeof body?.status === 'string' ? (body.status as LeadStatus) : undefined;
@@ -832,38 +887,21 @@ export function createApp(runtime: Runtime): Hono {
   });
 
   app.post('/api/leads/:id/vote', async (c) => {
-    if (!await canRead(c, runtime)) return c.json({ error: 'unauthorized' }, 401);
+    const user = await currentUser(c, runtime);
+    if (!user) return c.json({ error: 'login_required' }, 401);
     const id = c.req.param('id');
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const signal = typeof body?.signal === 'string' ? body.signal : undefined;
-    const validSignals = ['useful', 'junk', 'scam', 'closed'];
-    if (!signal || !validSignals.includes(signal)) {
+    const validSignals: VoteSignal[] = ['useful', 'junk', 'scam', 'closed'];
+    if (!signal || !validSignals.includes(signal as VoteSignal)) {
       return c.json({ error: 'invalid_signal', valid: validSignals }, 400);
     }
 
-    // TASK-D1: w = min(reputation, 5.0) * age_factor
-    let weight = 1.0;
-    if (typeof body?.weight === 'number' && Number.isFinite(body.weight) && body.weight > 0) {
-      weight = body.weight;
-    } else if (typeof body?.reputation === 'number' && Number.isFinite(body.reputation)) {
-      const rep = Math.max(0, Math.min(body.reputation, 5.0));
-      const ageDays = typeof body?.accountAgeDays === 'number' && Number.isFinite(body.accountAgeDays)
-        ? body.accountAgeDays
-        : 30;
-      const ageFactor = ageDays >= 7 ? 1.0 : Math.max(0.1, ageDays / 7);
-      weight = Number((rep * ageFactor).toFixed(2));
-    }
-
-    const clientIp = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '127.0.0.1';
-    const subnet = extractSubnet24(clientIp);
-
     try {
-      const result = await runtime.store.recordVote(
-        id,
-        signal as 'useful' | 'junk' | 'scam' | 'closed',
-        weight,
-        subnet,
-      );
+      const result = await runtime.store.recordUserVote?.(id, user.id, signal as VoteSignal);
+      if (!result) {
+        return c.json({ error: 'votes_not_supported' }, 500);
+      }
       return c.json({ ok: true, id, ...result });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1054,20 +1092,12 @@ export function createApp(runtime: Runtime): Hono {
     if (!valid.valid) return c.json({ error: valid.error || 'invalid_url' }, 400);
 
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 10000);
-      const res = await runtime.fetchImpl(url, {
-        signal: controller.signal,
-        headers: {
-          'user-agent': runtime.env.RADAR_USER_AGENT,
-          accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
+      // fetchSafeHttp resolves DNS and blocks private/metadata IPs on every redirect hop
+      const html = await fetchSafeHttp(url, {
+        timeoutMs: 10_000,
+        userAgent: runtime.env.RADAR_USER_AGENT,
+        fetchImpl: runtime.fetchImpl,
       });
-      clearTimeout(timer);
-      if (!res.ok) {
-        return c.json({ error: 'fetch_failed', status: res.status }, 502);
-      }
-      const html = await res.text();
       const preview = extractPreviewFromHtml(html, url);
       return c.json({ ok: true, preview });
     } catch (err) {
@@ -1079,7 +1109,8 @@ export function createApp(runtime: Runtime): Hono {
   });
 
   app.post('/api/submit', async (c) => {
-    if (!await canRead(c, runtime)) return c.json({ error: 'unauthorized' }, 401);
+    const user = await currentUser(c, runtime);
+    if (!user) return c.json({ error: 'login_required' }, 401);
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body) return c.json({ error: 'invalid_json' }, 400);
 
@@ -1110,7 +1141,7 @@ export function createApp(runtime: Runtime): Hono {
       title: title ?? text ?? '',
       text: text ?? title ?? '',
       url,
-      author: asString(body.author) || 'Web Submission',
+      author: asString(body.author) || user.handle,
       category: asString(body.category),
       city: asString(body.city),
       budget: asNumber(body.budget),

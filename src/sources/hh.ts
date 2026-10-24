@@ -193,10 +193,11 @@ export const hhSource: SourceAdapter = {
       url.searchParams.set('schedule', String(source.config.schedule));
     }
 
-    const customUserAgent = 'OpenRadar/1.0 (contact@radar.dev)';
+    // HH API requires a meaningful User-Agent with contact info; RADAR_USER_AGENT
+    // carries the operator's real project URL, the fallback keeps the old one.
     const headers: Record<string, string> = {
       Accept: 'application/json',
-      'User-Agent': customUserAgent,
+      'User-Agent': ctx.userAgent || 'OpenRadar/0.4.0 (+https://github.com/MikhailSagalaev/radar-oss)',
     };
     if (typeof source.config.token === 'string' && source.config.token.trim()) {
       headers['Authorization'] = `Bearer ${source.config.token.trim()}`;

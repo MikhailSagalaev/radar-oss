@@ -3,9 +3,9 @@ import { createApp } from '../src/server/app.ts';
 import type { Runtime } from '../src/runtime.ts';
 import type { Env } from '../src/core/types.ts';
 import { loadEnv } from '../src/config.ts';
-import { makeTestRuntime } from './helpers.ts';
+import { makeTestRuntime, makeUserSession } from './helpers.ts';
 
-function makeRuntime(overrides: Partial<Env> = {}): Runtime {
+function makeRuntime(overrides: Partial<Env> = {}, fetchImpl: typeof fetch = fetch): Runtime {
   const base = makeTestRuntime({ RADAR_ADMIN_TOKEN: 'secret', ...overrides });
   return {
     env: base.env,
@@ -13,7 +13,7 @@ function makeRuntime(overrides: Partial<Env> = {}): Runtime {
     store: base.store,
     sources: base.sources,
     sinks: base.sinks,
-    fetchImpl: fetch,
+    fetchImpl,
   };
 }
 
@@ -497,6 +497,21 @@ describe('http server', () => {
     expect(patchRes.status).toBe(200);
     expect((await runtime.store.getLead(leadId))?.status).toBe('applied');
 
+    // 4. A logged-in GitHub user without admin rights cannot change the funnel
+    const userSession = await makeUserSession(runtime);
+    const denied = await app.request(`/leads/${leadId}/status`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: `radar_session=${userSession}`,
+        origin: 'http://localhost',
+      },
+      body: formBody({ status: 'rejected' }),
+    });
+    expect(denied.status).toBe(302);
+    expect(denied.headers.get('location')).toBe('/login');
+    expect((await runtime.store.getLead(leadId))?.status).toBe('applied');
+
     await runtime.store.close();
   });
 
@@ -536,7 +551,7 @@ describe('http server', () => {
     await runtime.store.close();
   });
 
-  it('supports community voting via /api/leads/:id/vote with reputation weighting (TASK-D1)', async () => {
+  it('requires a GitHub user for /api/leads/:id/vote and counts one vote per user', async () => {
     const runtime = makeRuntime();
     const source = await runtime.store.createSource({ kind: 'rss', title: 'Feed' });
     const lead = {
@@ -554,40 +569,71 @@ describe('http server', () => {
     await runtime.store.insertLead(lead);
     const app = createApp(runtime);
 
-    // 1. Invalid signal returns 400
-    const badVote = await app.request(`/api/leads/${lead.id}/vote`, {
+    // 1. Anonymous (even with the admin token) -> login required
+    const anonVote = await app.request(`/api/leads/${lead.id}/vote`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: 'Bearer secret',
+        origin: 'http://localhost',
+      },
+      body: JSON.stringify({ signal: 'useful' }),
+    });
+    expect(anonVote.status).toBe(401);
+
+    // 2. Invalid signal with a user session -> 400
+    const sessionId = await makeUserSession(runtime);
+    const badVote = await app.request(`/api/leads/${lead.id}/vote`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: `radar_session=${sessionId}`,
         origin: 'http://localhost',
       },
       body: JSON.stringify({ signal: 'invalid' }),
     });
     expect(badVote.status).toBe(400);
 
-    // 2. Valid vote with reputation weighting: reputation=3, accountAgeDays=14 -> weight=3.0
+    // 3. Vote weight is fixed at 1.0; client-supplied weight/reputation is ignored
     const goodVote = await app.request(`/api/leads/${lead.id}/vote`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: 'Bearer secret',
+        cookie: `radar_session=${sessionId}`,
         origin: 'http://localhost',
       },
-      body: JSON.stringify({ signal: 'useful', reputation: 3.0, accountAgeDays: 14 }),
+      body: JSON.stringify({ signal: 'useful', reputation: 5.0, weight: 4.2 }),
     });
     expect(goodVote.status).toBe(200);
-    const result = (await goodVote.json()) as { ok: boolean; votes_up: number; score: number };
+    const result = (await goodVote.json()) as {
+      ok: boolean;
+      votes_up: number;
+      alreadyVoted: boolean;
+    };
     expect(result.ok).toBe(true);
-    expect(result.votes_up).toBe(3);
-    expect(result.score).toBeGreaterThan(70);
+    expect(result.votes_up).toBe(1);
+    expect(result.alreadyVoted).toBe(false);
+
+    // 4. Repeating the same signal does not change the counters
+    const repeatVote = await app.request(`/api/leads/${lead.id}/vote`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: `radar_session=${sessionId}`,
+        origin: 'http://localhost',
+      },
+      body: JSON.stringify({ signal: 'useful' }),
+    });
+    expect(repeatVote.status).toBe(200);
+    const repeatResult = (await repeatVote.json()) as { votes_up: number; alreadyVoted: boolean };
+    expect(repeatResult.votes_up).toBe(1);
+    expect(repeatResult.alreadyVoted).toBe(true);
 
     await runtime.store.close();
   });
 
-  it('renders community voting buttons with counts on /leads/:id and handles POST /leads/:id/vote (TASK-A1)', async () => {
+  it('renders voting controls per role on /leads/:id and counts form votes once (TASK-A1)', async () => {
     const runtime = makeRuntime();
-    const sessionId = await makeAdminSession(runtime);
     const source = await runtime.store.createSource({ kind: 'webhook', title: 'Web Source' });
     const lead = {
       id: 'lead-vote-ui-test',
@@ -608,28 +654,37 @@ describe('http server', () => {
     };
     await runtime.store.insertLead(lead);
     const app = createApp(runtime);
+    const userSession = await makeUserSession(runtime);
+    const adminSession = await makeAdminSession(runtime);
 
-    // 1. Lead page displays voting buttons and initial counts
-    const pageRes = await app.request(`/leads/${lead.id}`, {
-      headers: { cookie: `radar_session=${sessionId}` },
+    // 1. Logged-in GitHub user sees the active voting form
+    const userPage = await app.request(`/leads/${lead.id}`, {
+      headers: { cookie: `radar_session=${userSession}` },
     });
-    expect(pageRes.status).toBe(200);
-    const html = await pageRes.text();
-    expect(html).toContain('Полезно');
-    expect(html).toContain('Мусор');
-    expect(html).toContain('Скам');
-    expect(html).toContain('Закрыто');
-    expect(html).toContain('>5<');
-    expect(html).toContain('>2<');
-    expect(html).toContain('>1<');
-    expect(html).toContain('>0<');
+    expect(userPage.status).toBe(200);
+    const userHtml = await userPage.text();
+    expect(userHtml).toContain('Полезно');
+    expect(userHtml).toContain('>5<');
+    expect(userHtml).toContain('name="signal"');
 
-    // 2. Form submission: POST /leads/:id/vote with signal=useful
+    // 2. Guests and admin sessions see counts plus a login hint instead of the form
+    const guestPage = await app.request(`/leads/${lead.id}`, {
+      headers: { cookie: `radar_session=${adminSession}` },
+    });
+    expect(guestPage.status).toBe(200);
+    const guestHtml = await guestPage.text();
+    expect(guestHtml).toContain('>5<');
+    expect(guestHtml).toContain('Войти через GitHub, чтобы голосовать');
+    expect(guestHtml).not.toContain('name="signal"');
+    // the funnel stays admin-only and remains visible for the admin session
+    expect(guestHtml).toContain('name="status"');
+
+    // 3. Form vote from a user session is counted
     const formVoteRes = await app.request(`/leads/${lead.id}/vote`, {
       method: 'POST',
       headers: {
         'content-type': 'application/x-www-form-urlencoded',
-        cookie: `radar_session=${sessionId}`,
+        cookie: `radar_session=${userSession}`,
         origin: 'http://localhost',
       },
       body: formBody({ signal: 'useful' }),
@@ -639,23 +694,17 @@ describe('http server', () => {
     const afterForm = await runtime.store.getLead(lead.id);
     expect(afterForm?.votes_up).toBe(6);
 
-    // 3. JSON submission: POST /leads/:id/vote with { signal: 'scam' }
-    const jsonVoteRes = await app.request(`/leads/${lead.id}/vote`, {
+    // 4. Repeating the same vote from the same user changes nothing
+    await app.request(`/leads/${lead.id}/vote`, {
       method: 'POST',
       headers: {
-        'content-type': 'application/json',
-        cookie: `radar_session=${sessionId}`,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: `radar_session=${userSession}`,
         origin: 'http://localhost',
       },
-      body: JSON.stringify({ signal: 'scam' }),
+      body: formBody({ signal: 'useful' }),
     });
-    expect(jsonVoteRes.status).toBe(200);
-    const jsonResult = (await jsonVoteRes.json()) as { ok: boolean; votes_scam: number };
-    expect(jsonResult.ok).toBe(true);
-    expect(jsonResult.votes_scam).toBe(2);
-
-    const afterJson = await runtime.store.getLead(lead.id);
-    expect(afterJson?.votes_scam).toBe(2);
+    expect((await runtime.store.getLead(lead.id))?.votes_up).toBe(6);
 
     await runtime.store.close();
   });
@@ -841,27 +890,50 @@ describe('http server', () => {
     await runtime.store.close();
   });
 
-  it('serves /submit page and handles 1-click submission via /api/submit', async () => {
-    const runtime = makeRuntime({ RADAR_PUBLIC_READ: true });
+  it('serves /submit with a login gate and creates leads for GitHub users via /api/submit', async () => {
+    const runtime = makeRuntime({
+      RADAR_PUBLIC_READ: true,
+      GITHUB_CLIENT_ID: 'client-id',
+      GITHUB_CLIENT_SECRET: 'client-secret',
+    });
     const app = createApp(runtime);
+    const userSession = await makeUserSession(runtime);
 
-    // 1. GET /submit renders form
-    const pageRes = await app.request('/submit');
-    expect(pageRes.status).toBe(200);
-    const html = await pageRes.text();
-    expect(html).toContain('Добавить по ссылке');
-    expect(html).toContain('url-input');
+    // 1. Guest sees the login gate instead of the form
+    const guestRes = await app.request('/submit');
+    expect(guestRes.status).toBe(200);
+    const guestHtml = await guestRes.text();
+    expect(guestHtml).toContain('Добавление заказов — для участников');
+    expect(guestHtml).toContain('Войти через GitHub');
+    expect(guestHtml).not.toContain('id="url-input"');
 
-    // 2. POST /api/submit creates lead
-    const submitRes = await app.request('/api/submit', {
+    // 2. Anonymous POST /api/submit -> login required
+    const anonRes = await app.request('/api/submit', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Аноним', text: 'Попытка без входа' }),
+    });
+    expect(anonRes.status).toBe(401);
+
+    // 3. GET /submit for a logged-in user renders the form
+    const pageRes = await app.request('/submit', {
+      headers: { cookie: `radar_session=${userSession}` },
+    });
+    expect(pageRes.status).toBe(200);
+    expect(await pageRes.text()).toContain('url-input');
+
+    // 4. POST /api/submit creates a lead attributed to the GitHub user
+    const submitRes = await app.request('/api/submit', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: `radar_session=${userSession}`,
+      },
       body: JSON.stringify({
         url: 'https://example.com/jobs/senior-architect',
         title: 'Lead Software Architect',
         text: 'Microservices architecture with Go and Kubernetes',
         type: 'job',
-        author: 'TechCorp',
         budget: 350000,
         currency: 'RUB',
       }),
@@ -875,7 +947,81 @@ describe('http server', () => {
     expect(stored?.title).toBe('Lead Software Architect');
     expect(stored?.type).toBe('job');
     expect(stored?.budget).toBe(350000);
+    expect(stored?.author).toBe('octocat');
 
     await runtime.store.close();
+  });
+
+  it('performs the GitHub OAuth round trip and binds the session to a user', async () => {
+    const runtime = makeRuntime(
+      { GITHUB_CLIENT_ID: 'client-id', GITHUB_CLIENT_SECRET: 'client-secret' },
+      (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === 'https://github.com/login/oauth/access_token') {
+          return new Response(JSON.stringify({ access_token: 'gho-token' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url === 'https://api.github.com/user') {
+          return new Response(JSON.stringify({ id: 583231, login: 'octocat' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('unexpected fetch', { status: 404 });
+      }) as typeof fetch,
+    );
+    const app = createApp(runtime);
+
+    // 1. /auth/github redirects to GitHub with client_id and a state cookie
+    const start = await app.request('/auth/github');
+    expect(start.status).toBe(302);
+    const location = start.headers.get('location') ?? '';
+    expect(location).toContain('https://github.com/login/oauth/authorize');
+    expect(location).toContain('client_id=client-id');
+    const state = new URL(location).searchParams.get('state') ?? '';
+    expect(state).toBeTruthy();
+    const setCookie = start.headers.get('set-cookie') ?? '';
+    expect(setCookie).toContain(`radar_oauth_state=${state}`);
+    expect(setCookie).toContain('HttpOnly');
+
+    // 2. Callback with the matching state exchanges the code and creates a session
+    const callback = await app.request(`/auth/github/callback?code=abc&state=${state}`, {
+      headers: { cookie: `radar_oauth_state=${state}` },
+    });
+    expect(callback.status).toBe(302);
+    expect(callback.headers.get('location')).toBe('/');
+    const cookies = callback.headers.getSetCookie();
+    const sessionCookie = cookies.find((cookie) => cookie.startsWith('radar_session=')) ?? '';
+    expect(sessionCookie).toBeTruthy();
+    const sessionId = sessionCookie.split('=')[1]?.split(';')[0] ?? '';
+
+    const user = await runtime.store.getUserBySession?.(sessionId);
+    expect(user?.handle).toBe('octocat');
+    expect(user?.githubId).toBe(583231);
+
+    // 3. A user session is not an admin session
+    expect(await runtime.store.validateSession?.(sessionId)).toBe(false);
+
+    await runtime.store.close();
+  });
+
+  it('rejects the OAuth callback on state mismatch and when OAuth is not configured', async () => {
+    const configured = makeRuntime({ GITHUB_CLIENT_ID: 'id', GITHUB_CLIENT_SECRET: 'secret' });
+    const app = createApp(configured);
+    const badState = await app.request('/auth/github/callback?code=abc&state=evil', {
+      headers: { cookie: 'radar_oauth_state=good' },
+    });
+    expect(badState.status).toBe(302);
+    expect(badState.headers.get('location')).toContain('/login?error=');
+    await configured.store.close();
+
+    const unconfigured = makeRuntime();
+    const app2 = createApp(unconfigured);
+    const start = await app2.request('/auth/github');
+    expect(start.status).toBe(302);
+    expect(start.headers.get('location')).toContain('/login?error=');
+    await unconfigured.store.close();
   });
 });

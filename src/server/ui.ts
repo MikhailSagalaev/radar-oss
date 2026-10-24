@@ -1,6 +1,11 @@
 import type { Lead, RunRecord, SourceHealth, SourceRecord, Stats } from '../core/types.ts';
 import { escapeHtml, firstLine } from '../core/text.ts';
 
+export interface AuthDisplay {
+  /** GitHub handle when the session belongs to a registered user. */
+  handle?: string;
+}
+
 export interface LeadsPageData {
   stats: Stats;
   health: SourceHealth[];
@@ -9,11 +14,13 @@ export interface LeadsPageData {
   status: string;
   type?: string;
   version: string;
+  auth?: AuthDisplay;
 }
 
 export interface SourcesPageData {
   health: SourceHealth[];
   version: string;
+  auth?: AuthDisplay;
 }
 
 export interface SourcePageData {
@@ -23,12 +30,14 @@ export interface SourcePageData {
   runs: RunRecord[];
   version: string;
   notice?: string;
+  auth?: AuthDisplay;
 }
 
 export interface LeadPageData {
   lead: Lead;
   source?: SourceRecord;
   version: string;
+  auth?: AuthDisplay;
 }
 
 export interface SourceFormValues {
@@ -60,12 +69,19 @@ export interface NewSourcePageData {
   submitLabel: string;
   sourceId?: string;
   error?: string;
+  auth?: AuthDisplay;
 }
 
 export interface CreatedSourcePageData {
   version: string;
   source: SourceRecord;
   token: string;
+}
+
+export interface ExtensionPageData {
+  version: string;
+  webhookSources: SourceRecord[];
+  auth?: AuthDisplay;
 }
 
 const KIND_LABELS: Record<string, string> = {
@@ -185,6 +201,7 @@ main {
 .nav a:hover { color: var(--ink); text-decoration: none; }
 .nav a.active { color: var(--ink); border-color: var(--ink); }
 .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.auth-handle { font-size: 12.5px; font-weight: 600; color: var(--ink); }
 .page-head {
   display: flex;
   align-items: flex-end;
@@ -782,9 +799,16 @@ function layout(input: {
   body: string;
   actions?: string;
   script?: string;
+  auth?: AuthDisplay;
 }): string {
   const nav = (key: 'leads' | 'sources' | 'extension', label: string, href: string): string =>
     `<a href="${href}"${input.active === key ? ' class="active"' : ''}>${label}</a>`;
+
+  const authChip = input.auth
+    ? input.auth.handle
+      ? `<span class="auth-handle">${escapeHtml(input.auth.handle)}</span><a class="chip" href="/logout">Выйти</a>`
+      : `<a class="chip" href="/logout">Выйти</a>`
+    : `<a class="chip" href="/login">Войти</a>`;
 
   return `<!doctype html>
 <html lang="ru">
@@ -803,7 +827,7 @@ function layout(input: {
     ${nav('leads', 'Заказы', '/')}
     ${nav('sources', 'Источники', '/sources')}
   </nav>
-  <div class="actions">${input.actions ?? ''}</div>
+  <div class="actions">${input.actions ?? ''}${authChip}</div>
 </header>
 ${input.body}
 <footer>
@@ -1176,6 +1200,7 @@ window.addEventListener('keydown', (e) => {
     body,
     actions: '<a class="btn" href="/submit">Добавить по ссылке</a>',
     script: searchHotkeyScript,
+    auth: data.auth,
   });
 }
 
@@ -1191,7 +1216,9 @@ function safeHttpUrl(url: string | undefined): string | undefined {
 }
 
 export function renderLeadPage(data: LeadPageData): string {
-  const { lead, source, version } = data;
+  const { lead, source, version, auth } = data;
+  const isUser = Boolean(auth?.handle);
+  const isAdminSession = Boolean(auth) && !auth?.handle;
   const copyScript = `<script>
 document.getElementById('copy-lead')?.addEventListener('click', async (event) => {
   const button = event.currentTarget;
@@ -1242,6 +1269,39 @@ document.getElementById('copy-lead')?.addEventListener('click', async (event) =>
     ? ` <span class="muted small">(≈ $${lead.normalizedUsdMin}${lead.normalizedUsdMax && lead.normalizedUsdMax !== lead.normalizedUsdMin ? `–$${lead.normalizedUsdMax}` : ''})</span>`
     : '';
 
+  const adminControls = isAdminSession
+    ? `<form method="post" action="/leads/${escapeHtml(lead.id)}/status" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <span class="small muted" style="margin-right:4px">Статус:</span>
+    <button name="status" value="new" class="funnel-btn ${lead.status === 'new' ? 'active' : ''}">Новый</button>
+    <button name="status" value="interesting" class="funnel-btn ${lead.status === 'interesting' ? 'active' : ''}">Интересно</button>
+    <button name="status" value="applied" class="funnel-btn ${lead.status === 'applied' ? 'active' : ''}">Откликнулся</button>
+    <button name="status" value="in_work" class="funnel-btn ${lead.status === 'in_work' ? 'active' : ''}">В работе</button>
+    <button name="status" value="rejected" class="funnel-btn ${lead.status === 'rejected' ? 'active' : ''}">Отклонён</button>
+  </form>
+  <form method="post" action="/leads/${escapeHtml(lead.id)}/feedback" style="display:flex;gap:6px;align-items:center">
+    <span class="small muted" style="margin-right:4px">Оценка:</span>
+    <button name="feedback" value="up" class="btn ghost small" title="Подходит">+10 Подходит</button>
+    <button name="feedback" value="down" class="btn ghost small" title="Мусор">-20 Мусор</button>
+  </form>`
+    : '';
+
+  const voteControls = isUser
+    ? `<form method="post" action="/leads/${escapeHtml(lead.id)}/vote" class="community-votes">
+    <span class="small muted" style="margin-right:4px">Сообщество:</span>
+    <button name="signal" value="useful" class="vote-btn" type="submit">Полезно <span class="vote-count">${lead.votes_up ?? 0}</span></button>
+    <button name="signal" value="junk" class="vote-btn" type="submit">Мусор <span class="vote-count">${lead.votes_down ?? 0}</span></button>
+    <button name="signal" value="scam" class="vote-btn vote-btn-danger" type="submit">Скам <span class="vote-count">${lead.votes_scam ?? 0}</span></button>
+    <button name="signal" value="closed" class="vote-btn" type="submit">Закрыто <span class="vote-count">${lead.votes_closed ?? 0}</span></button>
+  </form>`
+    : `<div class="community-votes">
+    <span class="small muted" style="margin-right:4px">Сообщество:</span>
+    <span class="vote-btn">Полезно <span class="vote-count">${lead.votes_up ?? 0}</span></span>
+    <span class="vote-btn">Мусор <span class="vote-count">${lead.votes_down ?? 0}</span></span>
+    <span class="vote-btn vote-btn-danger">Скам <span class="vote-count">${lead.votes_scam ?? 0}</span></span>
+    <span class="vote-btn">Закрыто <span class="vote-count">${lead.votes_closed ?? 0}</span></span>
+    <a class="chip" href="/login">Войти через GitHub, чтобы голосовать</a>
+  </div>`;
+
   const body = `
 <a class="back" href="/">Все заказы</a>
 <div class="page-head">
@@ -1256,26 +1316,8 @@ document.getElementById('copy-lead')?.addEventListener('click', async (event) =>
 </div>
 
 <div class="funnel-bar">
-  <form method="post" action="/leads/${escapeHtml(lead.id)}/status" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-    <span class="small muted" style="margin-right:4px">Статус:</span>
-    <button name="status" value="new" class="funnel-btn ${lead.status === 'new' ? 'active' : ''}">Новый</button>
-    <button name="status" value="interesting" class="funnel-btn ${lead.status === 'interesting' ? 'active' : ''}">Интересно</button>
-    <button name="status" value="applied" class="funnel-btn ${lead.status === 'applied' ? 'active' : ''}">Откликнулся</button>
-    <button name="status" value="in_work" class="funnel-btn ${lead.status === 'in_work' ? 'active' : ''}">В работе</button>
-    <button name="status" value="rejected" class="funnel-btn ${lead.status === 'rejected' ? 'active' : ''}">Отклонён</button>
-  </form>
-  <form method="post" action="/leads/${escapeHtml(lead.id)}/vote" class="community-votes">
-    <span class="small muted" style="margin-right:4px">Сообщество:</span>
-    <button name="signal" value="useful" class="vote-btn" type="submit">Полезно <span class="vote-count">${lead.votes_up ?? 0}</span></button>
-    <button name="signal" value="junk" class="vote-btn" type="submit">Мусор <span class="vote-count">${lead.votes_down ?? 0}</span></button>
-    <button name="signal" value="scam" class="vote-btn vote-btn-danger" type="submit">Скам <span class="vote-count">${lead.votes_scam ?? 0}</span></button>
-    <button name="signal" value="closed" class="vote-btn" type="submit">Закрыто <span class="vote-count">${lead.votes_closed ?? 0}</span></button>
-  </form>
-  <form method="post" action="/leads/${escapeHtml(lead.id)}/feedback" style="display:flex;gap:6px;align-items:center">
-    <span class="small muted" style="margin-right:4px">Оценка:</span>
-    <button name="feedback" value="up" class="btn ghost small" title="Подходит">+10 Подходит</button>
-    <button name="feedback" value="down" class="btn ghost small" title="Мусор">-20 Мусор</button>
-  </form>
+  ${adminControls}
+  ${voteControls}
 </div>
 
 ${cautionBanner}
@@ -1316,6 +1358,7 @@ ${cautionBanner}
     active: 'leads',
     body,
     script: copyScript,
+    auth: data.auth,
   });
 }
 
@@ -1363,6 +1406,7 @@ export function renderSourcesPage(data: SourcesPageData): string {
     body,
     actions:
       '<form method="post" action="/sources/presets" style="display:inline"><button class="btn ghost" type="submit">Загрузить биржи</button></form><a class="btn" href="/sources/new">Добавить источник</a>',
+    auth: data.auth,
   });
 }
 
@@ -1426,6 +1470,7 @@ ${metricRow([
         <button class="btn ghost danger" type="submit">Удалить</button>
       </form>`,
     script: POLL_SCRIPT,
+    auth: data.auth,
   });
 }
 
@@ -1554,6 +1599,7 @@ syncKind();
     active: 'sources',
     body,
     actions: '<a class="btn ghost" href="/sources">Отмена</a>',
+    auth: data.auth,
   });
 }
 
@@ -1586,13 +1632,8 @@ export function renderNotFound(version: string): string {
   });
 }
 
-export interface ExtensionPageData {
-  version: string;
-  webhookSources: SourceRecord[];
-}
-
 export function renderExtensionPage(data: ExtensionPageData): string {
-  const { version, webhookSources } = data;
+  const { version, webhookSources, auth } = data;
   const script = `<script>
 document.addEventListener('DOMContentLoaded', () => {
   const urlEl = document.getElementById('detected-url');
@@ -1696,15 +1737,39 @@ document.addEventListener('DOMContentLoaded', () => {
     active: 'extension',
     body,
     script,
+    auth,
   });
 }
 
 export interface SubmitPageData {
   version: string;
+  auth?: AuthDisplay;
+  userHandle?: string;
+  githubEnabled?: boolean;
 }
 
 export function renderSubmitPage(data: SubmitPageData): string {
-  const { version } = data;
+  const { version, userHandle, githubEnabled } = data;
+
+  if (!userHandle) {
+    const githubButton = githubEnabled
+      ? '<a class="btn" href="/auth/github">Войти через GitHub</a>'
+      : '<p class="muted small">На этом сервере не настроен GitHub OAuth (переменные GITHUB_CLIENT_ID и GITHUB_CLIENT_SECRET).</p>';
+    const guestBody = `
+<a class="back" href="/">← Все заказы</a>
+<div class="empty" style="margin-top:24px">
+  <h2>Добавление заказов — для участников</h2>
+  <p>Чтобы база OpenRadar оставалась доверенной, добавлять лиды могут только зарегистрированные участники. Войдите через GitHub — это займёт секунды.</p>
+  <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">${githubButton}</div>
+</div>`;
+    return layout({
+      title: 'Добавить по ссылке',
+      version,
+      active: 'leads',
+      body: guestBody,
+      auth: data.auth,
+    });
+  }
 
   const body = `
 <a class="back" href="/">← Все заказы</a>
@@ -1971,6 +2036,7 @@ export function renderSubmitPage(data: SubmitPageData): string {
     active: 'leads',
     body,
     script,
+    auth: data.auth,
   });
 }
 

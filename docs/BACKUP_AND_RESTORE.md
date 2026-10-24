@@ -10,7 +10,7 @@
 
 ### Настройка cron
 
-Добавьте задание в crontab (`crontab -e`) для ежедневного запуска в 03:00 ночи:
+Добавьте задание в crontab (`crontab -e`) для ежедневного запуска в 03:00 ночи. Замените `/opt/radar` на каталог, где реально живёт compose-проект (`docker inspect radar_app --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'`):
 
 ```cron
 0 3 * * * cd /opt/radar && bash scripts/backup.sh >> /var/log/radar-backup.log 2>&1

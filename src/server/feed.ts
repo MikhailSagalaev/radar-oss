@@ -27,12 +27,14 @@ export function renderRssFeed(options: {
         : new Date(lead.createdAt).toUTCString();
       const link = lead.url || `${baseUrl}/leads/${lead.id}`;
       const leadTitle = escapeXml(lead.title.trim() || lead.text.slice(0, 80));
+      // A raw "]]>" inside the text would close the CDATA section early
+      const safeText = lead.text.replace(/\]\]>/g, ']]]]><![CDATA[>');
       return `    <item>
       <title>${leadTitle}</title>
       <link>${escapeXml(link)}</link>
       <guid isPermaLink="false">${escapeXml(lead.id)}</guid>
       <pubDate>${pubDate}</pubDate>
-      <description><![CDATA[${lead.text}]]></description>
+      <description><![CDATA[${safeText}]]></description>
     </item>`;
     })
     .join('\n');

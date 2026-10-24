@@ -49,7 +49,8 @@ describe('HeadHunter (HH.ru) Source Adapter', () => {
     // Verify User-Agent header and URL query parameters
     expect(capturedUrl).toContain('text=golang');
     expect(capturedUrl).toContain('per_page=10');
-    expect(capturedHeaders?.['User-Agent']).toContain('OpenRadar/1.0');
+    // The adapter must honor the operator-configured User-Agent, not a hardcoded one
+    expect(capturedHeaders?.['User-Agent']).toBe('radar-test');
 
     // Verify items count
     expect(leads).toHaveLength(3);

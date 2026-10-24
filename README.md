@@ -74,6 +74,13 @@ node bin/radar.js serve
 
 Open `http://127.0.0.1:8787`. If `RADAR_ADMIN_TOKEN` is set, the dashboard asks for it once and stores it in an HTTP-only cookie.
 
+## Авторизация
+
+- **Просмотр** (`/`, `/leads/:id`, `/feed.rss`, `/api/delta`) публичен при `RADAR_PUBLIC_READ=true`.
+- **Голосование и добавление лидов через `/submit`** доступны только после входа через GitHub. Создайте OAuth App на [github.com/settings/developers](https://github.com/settings/developers) с callback `https://your-domain/auth/github/callback` и задайте `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`.
+- Вес голоса — 1.0 на участника, один голос на сигнал; повторный голос того же сигнала не учитывается. Админ-токен права голоса не даёт.
+- **Воронка статусов** (`interesting` / `applied` / `in_work`) и оценка `+10/-20` — личный инструмент оператора, управляется админ-токеном.
+
 For development without a build:
 
 ```bash
@@ -109,6 +116,9 @@ Use an app password, not the main account password. `--mark-seen` is off by defa
 | `imap` | user-provided | works | host, user and an env var with the password |
 | `telegram` | public | works | a public channel username; reads `t.me/s/` |
 | `kwork` | public | works, fragile | no account; parses the embedded page state |
+| `trudvsem` | official | works | none; Работа России (Минтруд) Open API |
+| `hh` | official | works | none for reading; a Bearer token or residential IP helps against the hh.ru WAF |
+| `remoteok` | official | works | none; returns the full jobs list |
 | `webhook` | user-provided | works | `POST /api/ingest/:sourceId` with a per-source token |
 
 Planned: RSS auto-discovery, generic JSON API.
@@ -223,10 +233,12 @@ Authentication: `Authorization: Bearer <RADAR_ADMIN_TOKEN>` or `x-radar-token`. 
 | `DATABASE_URL` | `postgres://radar:...@postgres:5432/radar` | PostgreSQL connection string |
 | `RADAR_HOST_PORT` | `8787` | HTTP port exposed on the host |
 | `RADAR_ADMIN_TOKEN` | unset | protects the API and dashboard (min 32 chars in production) |
-| `RADAR_USER_AGENT` | `RadarBot/0.3.0 ...` | sent to sources |
+| `RADAR_USER_AGENT` | `RadarBot/0.4.0 ...` | sent to sources |
 | `RADAR_HTTP_TIMEOUT_MS` | `15000` | per-request timeout |
 | `RADAR_POLL_INTERVAL_SEC` | `300` | scheduler interval |
 | `RADAR_PUBLIC_READ` | `false` | allow read-only API without a token |
+| `GITHUB_CLIENT_ID` | unset | GitHub OAuth app id; required for voting and `/submit` |
+| `GITHUB_CLIENT_SECRET` | unset | GitHub OAuth app secret |
 | `RADAR_CONSOLE_SINK` | `true` | log delivered leads |
 | `TELEGRAM_BOT_TOKEN` | unset | Telegram sink |
 | `TELEGRAM_CHAT_ID` | unset | Telegram sink target |
